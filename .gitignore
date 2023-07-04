@@ -1,0 +1,5 @@
+# .gitignore
+datasets/
+savemodel/
+.idea/
+log/
