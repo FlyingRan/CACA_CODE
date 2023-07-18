@@ -1,14 +1,14 @@
 from transformers import BertTokenizer
 import numpy as np
 import json
-
+from .data_BIO_loader import categories,id2category
 
 
 id4validity = {0: 'none', 1: 'valid'}
 id4sentiment = {3: 'none', 2: 'positive', 0: 'negative', 1:'neutral'}
-categories = ['RESTAURANT#GENERAL', 'SERVICE#GENERAL', 'FOOD#GENERAL', 'FOOD#QUALITY', 'FOOD#STYLE_OPTIONS', 'DRINKS#STYLE_OPTIONS', 'DRINKS#PRICES',
-            'AMBIENCE#GENERAL', 'RESTAURANT#PRICES', 'FOOD#PRICES', 'RESTAURANT#MISCELLANEOUS', 'DRINKS#QUALITY', 'LOCATION#GENERAL']
-id2category = {i: ch for i, ch in enumerate(categories)}
+# categories = ['RESTAURANT#GENERAL', 'SERVICE#GENERAL', 'FOOD#GENERAL', 'FOOD#QUALITY', 'FOOD#STYLE_OPTIONS', 'DRINKS#STYLE_OPTIONS', 'DRINKS#PRICES',
+#             'AMBIENCE#GENERAL', 'RESTAURANT#PRICES', 'FOOD#PRICES', 'RESTAURANT#MISCELLANEOUS', 'DRINKS#QUALITY', 'LOCATION#GENERAL']
+
 class Metric():
     def __init__(self, args, forward_pred_result, reverse_pred_result, gold_instances):
         self.args = args
@@ -91,51 +91,52 @@ class Metric():
     def cal_quad_final_result(self, forward_results, forward_spans, reverse_results, reverse_spans):
 
         pred_dicts = {}
-        final_quad = list(forward_results)
-        for element in reverse_results:
-            first_element = element[0]
-            for element_f in forward_results:
-                if first_element == element_f[0]:
-                    final_quad.append((element[0],element[1],element_f[2],element[2]))
-        # pred_spans = forward_spans + reverse_spans
-        # for index, result in enumerate(final_quad):
-        #     if result in pred_dicts:
-        #         score_dict = pred_dicts[result][2]
-        #         score_new = pred_spans[index][2]
-        #         if score_dict > score_new:
-        #             continue
-        #         else:
-        #             pred_dicts[result] = pred_spans[index]
-        #     else:
-        #         pred_dicts[result] = pred_spans[index]
-        # history = []
-        # for i in pred_dicts:
-        #     aspect_span_i = range(pred_dicts[i][0][0], pred_dicts[i][0][1])
-        #     opinion_span_i = range(pred_dicts[i][1][0], pred_dicts[i][1][1])
-        #     for j in pred_dicts:
-        #         if (i,j) in history:
-        #             continue
-        #         history.append((i, j))
-        #         history.append((j, i))
-        #         if i == j:
-        #             continue
-        #         aspect_span_j = range(pred_dicts[j][0][0], pred_dicts[j][0][1])
-        #         opinion_span_j = range(pred_dicts[j][1][0], pred_dicts[j][1][1])
-        #         repeat_a_span = list(set(aspect_span_i) & set(aspect_span_j))
-        #         repeat_o_span = list(set(opinion_span_i) & set(opinion_span_j))
-        #         if len(repeat_a_span) == 0 or len(repeat_o_span) == 0:
-        #             continue
-        #         elif len(repeat_a_span) <= min(len(aspect_span_i), len(aspect_span_j)) and \
-        #                 len(repeat_o_span) <= min(len(opinion_span_i), len(opinion_span_j)):
-        #             i_score = pred_dicts[i][2]
-        #             j_score = pred_dicts[j][2]
-        #             if i_score >= j_score:
-        #                 pred_dicts[j] = (pred_dicts[j][0], pred_dicts[j][1], 0)
-        #             else:
-        #                 pred_dicts[i] = (pred_dicts[i][0], pred_dicts[i][1], 0)
-        #         else:
-        #             raise(KeyboardInterrupt)
-        return final_quad
+        # final_quad = list(forward_results)
+        # for element in reverse_results:
+        #     first_element = element[0]
+        #     for element_f in forward_results:
+        #         if first_element == element_f[0]:
+        #             final_quad.append((element[0],element[1],element_f[2],element[2]))
+
+        pred_spans = forward_spans + reverse_spans
+        for index, result in enumerate(forward_results + reverse_results):
+            if result in pred_dicts:
+                score_dict = pred_dicts[result][2]
+                score_new = pred_spans[index][2]
+                if score_dict > score_new:
+                    continue
+                else:
+                    pred_dicts[result] = pred_spans[index]
+            else:
+                pred_dicts[result] = pred_spans[index]
+        history = []
+        for i in pred_dicts:
+            aspect_span_i = range(pred_dicts[i][0][0], pred_dicts[i][0][1])
+            opinion_span_i = range(pred_dicts[i][1][0], pred_dicts[i][1][1])
+            for j in pred_dicts:
+                if (i, j) in history:
+                    continue
+                history.append((i, j))
+                history.append((j, i))
+                if i == j:
+                    continue
+                aspect_span_j = range(pred_dicts[j][0][0], pred_dicts[j][0][1])
+                opinion_span_j = range(pred_dicts[j][1][0], pred_dicts[j][1][1])
+                repeat_a_span = list(set(aspect_span_i) & set(aspect_span_j))
+                repeat_o_span = list(set(opinion_span_i) & set(opinion_span_j))
+                if len(repeat_a_span) == 0 or len(repeat_o_span) == 0:
+                    continue
+                elif len(repeat_a_span) <= min(len(aspect_span_i), len(aspect_span_j)) and \
+                        len(repeat_o_span) <= min(len(opinion_span_i), len(opinion_span_j)):
+                    i_score = pred_dicts[i][2]
+                    j_score = pred_dicts[j][2]
+                    if i_score >= j_score:
+                        pred_dicts[j] = (pred_dicts[j][0], pred_dicts[j][1], 0)
+                    else:
+                        pred_dicts[i] = (pred_dicts[i][0], pred_dicts[i][1], 0)
+                else:
+                    raise (KeyboardInterrupt)
+        return [_ for _ in pred_dicts if pred_dicts[_][2] != 0]
     def score_triples(self):
         correct_aspect_num,correct_opinion_num,correct_apce_num,correct_pairs_num,correct_num = 0,0,0,0,0
         gold_aspect_num,gold_opinion_num,gold_apce_num,gold_pairs_num,gold_num = 0,0,0,0,0
@@ -149,10 +150,12 @@ class Metric():
         # pred_opinion_num_length1, pred_opinion_num_length2, pred_opinion_num_length3, pred_opinion_num_length4, pred_opinion_num_length5 = 0,0,0,0,0
         # correct_opinion_num_length1, correct_opinion_num_length2, correct_opinion_num_length3, correct_opinion_num_length4, correct_opinion_num_length5 =  0,0,0,0,0
 
-        # if self.args.output_path:
-        #     result = []
-        #     aspect_text = []
-        #     opinion_text = []
+        if self.args.output_path:
+            result = []
+            result1= []
+            result2 = []
+            aspect_text = []
+            opinion_text = []
         for i in range(len(self.gold_instances)):
             '''实体长度实验'''
             # gold_aspect_length1, gold_aspect_length2, gold_aspect_length3, gold_aspect_length4, gold_aspect_length5 = [], [], [], [], []
@@ -186,8 +189,6 @@ class Metric():
             pred_aspect, pred_opinion, pred_apce, pred_pairs, pred_triples, pred_spans,pred_quad,pred_category = self.find_pred_quad(i, bert_spans,
                                                                                                     bert_tokens)
 
-            # if len(gold_triples) < 5:
-            #     continue
 
             reverse_aspect, reverse_opinion, reverse_apce, reverse_pairs, reverse_triples, reverse_spans = \
                 self.find_pred_reverse_triples(i, bert_spans, bert_tokens)
@@ -198,36 +199,67 @@ class Metric():
             pred_pairs = list(set(pred_pairs) | set(reverse_pairs))
             pred_category = list(set(pred_category))
             if self.args.Filter_Strategy:
-                pred_quad = self.cal_quad_final_result(pred_quad, pred_spans, reverse_triples, reverse_spans)
+                pred_triples = self.cal_quad_final_result(pred_triples, pred_spans, reverse_triples, reverse_spans)
             else:
                 pred_triples = list(set(pred_triples) | set(reverse_triples))
+            pred_category_span = self.pred_aspect_category[i]
+            quad_list = []
+            if len(pred_category_span) > 0:
+                for j, a_o_c in enumerate(pred_category_span):
+                    aspect_span = bert_spans[a_o_c[0]]
+                    aspect_span = (aspect_span[2], aspect_span[0], aspect_span[1])
+
+                    opinion_span = bert_spans[int(a_o_c[1])]
+                    opinion_span = (opinion_span[2], opinion_span[0], opinion_span[1])
+                    aspect = self.find_token(bert_tokens, aspect_span)
+                    opinion = self.find_token(bert_tokens, opinion_span)
+                    for j, triple in enumerate(pred_triples):
+                        if triple[0] == aspect and triple[1] == opinion:
+                            quad_list.append((aspect, opinion, id2category[a_o_c[2]], triple[2]))
+
             gold_num, pred_num, correct_num = self.num_4_eval(gold_quad, pred_quad, gold_num,
                                                               pred_num, correct_num)
-            quad_result = self.P_R_F1(gold_num, pred_num, correct_num)
+            if self.args.output_path:
+                if len(gold_quad)<2:
+                    result1.append({"sentence": self.gold_instances[i]['sentence'],
+                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                   })
+                elif len(gold_quad) < 3:
+                    result.append({"sentence": self.gold_instances[i]['sentence'],
+                                         "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                         "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                        "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                        "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                         })
+                else:
+                    result2.append({"sentence": self.gold_instances[i]['sentence'],
+                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                   })
             # # pred_aspect = reverse_aspect
             # # pred_opinion = reverse_opinion
             # # pred_apce = reverse_apce
             # # pred_pairs = reverse_pairs
             # # pred_triples = reverse_triples
 
-            # if self.args.output_path:
-            #     result.append({"sentence": self.gold_instances[i]['sentence'],
-            #                          "triple_list_gold": [gold_triple for gold_triple in set(gold_triples)],
-            #                          "triple_list_pred": [pred_triple for pred_triple in set(pred_triples)],
-            #                         "new": [new_triple for new_triple in (set(pred_triples) - set(gold_triples))],
-            #                         "lack": [lack_triple for lack_triple in (set(gold_triples) - set(pred_triples))]
-            #                          })
-            #     aspect_text.append({"sentence": self.gold_instances[i]['sentence'],
-            #                         'gold aspect': [gold_as for gold_as in set(gold_aspect)],
-            #                         'pred aspect': [pred_as for pred_as in set(pred_aspect)],
-            #                         "new": [new_as for new_as in (set(pred_aspect) - set(gold_aspect))],
-            #                         "lack": [lack_as for lack_as in (set(gold_aspect) - set(pred_aspect))]})
-            #     opinion_text.append({"sentence": self.gold_instances[i]['sentence'],
-            #                         'gold aspect': [gold_op for gold_op in set(gold_opinion)],
-            #                         'pred aspect': [pred_op for pred_op in set(pred_opinion)],
-            #                         "new": [new_op for new_op in (set(pred_opinion) - set(gold_opinion))],
-            #                         "lack": [lack_op for lack_op in (set(gold_opinion) - set(pred_opinion))]})
 
+        if self.args.output_path:
+            F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
+            json.dump(result, F, ensure_ascii=False, indent=4)
+            F.close()
+
+            F1 = open(self.args.dataset + 'quad_num_3-5.json', 'w', encoding='utf-8')
+            json.dump(result2, F1, ensure_ascii=False, indent=4)
+            F1.close()
+            F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
+            json.dump(result1, F2, ensure_ascii=False, indent=4)
+            F2.close()
+        quad_result = self.P_R_F1(gold_num, pred_num, correct_num)
 
             # gold_aspect_num, pred_aspect_num, correct_aspect_num = self.num_4_eval(gold_aspect, pred_aspect,
             #                                                                        gold_aspect_num,
@@ -330,18 +362,15 @@ class Metric():
             #     correct_opinion_num_length5)
             # assert gold_opinion_num_length1+gold_opinion_num_length2+ gold_opinion_num_length3+gold_opinion_num_length4+gold_opinion_num_length5 == gold_opinion_num
 
-        # if self.args.output_path:
-        #     F = open(self.args.dataset + 'triples.json', 'w', encoding='utf-8')
-        #     json.dump(result, F, ensure_ascii=False, indent=4)
-        #     F.close()
-        #
-        #     F1 = open(self.args.dataset + 'aspect.json', 'w', encoding='utf-8')
-        #     json.dump(aspect_text, F1, ensure_ascii=False, indent=4)
-        #     F1.close()
-        #
-        #     F2 = open(self.args.dataset + 'opinion.json', 'w', encoding='utf-8')
-        #     json.dump(opinion_text, F2, ensure_ascii=False, indent=4)
-        #     F2.close()
+
+
+            # F1 = open(self.args.dataset + 'aspect.json', 'w', encoding='utf-8')
+            # json.dump(aspect_text, F1, ensure_ascii=False, indent=4)
+            # F1.close()
+            #
+            # F2 = open(self.args.dataset + 'opinion.json', 'w', encoding='utf-8')
+            # json.dump(opinion_text, F2, ensure_ascii=False, indent=4)
+            # F2.close()
 
         # aspect_result_length1 = self.P_R_F1(gold_aspect_num_length1, pred_aspect_num_length1, correct_aspect_num_length1)
         # aspect_result_length2 = self.P_R_F1(gold_aspect_num_length2, pred_aspect_num_length2,
@@ -513,7 +542,7 @@ class Metric():
                 else:
                     aspect_tokens += token
             if(aspect_tokens == []):
-                new_aspect = 'CLS'
+                new_aspect = '[CLS]'
             else:
                 new_aspect = self.gold_token(aspect_tokens)
 
@@ -527,7 +556,7 @@ class Metric():
                 else:
                     opinion_tokens += token
             if (opinion_tokens == []):
-                new_opinion = 'CLS'
+                new_opinion = '[CLS]'
             else:
                 new_opinion = self.gold_token(opinion_tokens)
             # new_opinion = self.gold_token(opinion_tokens)
@@ -636,12 +665,11 @@ class Metric():
                 else:
                     new_aspect_span.append(pred_aspect)
         for j, pred_aspect in enumerate(new_aspect_span):
-            if pred_aspect[1] == -1:
+            if pred_aspect[1] == 0:
                 aspect = "CLS"
-                aspect_span_output = [-1,-1]
             else:
                 aspect = self.find_token(bert_tokens, pred_aspect)
-                aspect_span_output = [pred_aspect[1], pred_aspect[2]+1]#隐含情况：【0，1】
+            aspect_span_output = [pred_aspect[1], pred_aspect[2]+1]#隐含情况：【0，1】
             # category = self.find_aspect_category(sentence_index, bert_spans,
             #                                                     pred_aspect,
             #                                                     self.pred_aspect_category,
@@ -674,7 +702,7 @@ class Metric():
             for opinion_span in new_opinion_spans:
                 opinion_span = (opinion_span[2], opinion_span[0], opinion_span[1])
                 opinion_span_output = [opinion_span[1], opinion_span[2]+1]
-                if(opinion_span[2] == 0):
+                if (opinion_span[2] == 0):
                     opinion = 'CLS'
                 else:
                     opinion = self.find_token(bert_tokens, opinion_span)

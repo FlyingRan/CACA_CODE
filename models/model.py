@@ -5,7 +5,7 @@ import torch.nn.functional as F
 # from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput
 
 from .Attention import Attention, Intermediate, Output, Dim_Four_Attention, masked_softmax
-from .data_BIO_loader import sentiment2id, validity2id,categories
+from .data_BIO_loader import sentiment2id, validity2id,categories,id2category
 from allennlp.nn.util import batched_index_select, batched_span_select
 import random
 import math
@@ -130,12 +130,19 @@ class Step_1(torch.nn.Module):
         self.reverse_1_decoders = nn.ModuleList(
             [Step_1_module(args, self.bert_config) for _ in range(max(1, args.block_num - 1))])
         self.category_classifier = nn.Sequential(
-            nn.Linear(768 * 2, len(categories)+1)
+            nn.Linear(768 * 2, len(categories))
         )
         self.sentiment_classification_opinion = nn.Linear(args.bert_feature_dim, len(validity2id) - 2)
             # self.sentiment_classification_opinion = nn.Linear(args.bert_feature_dim, len(sentiment2id))
         self.categories_classification_opinion = nn.Linear(args.bert_feature_dim, len(categories))
-
+        self.imp_asp_classifier = nn.Sequential(
+            nn.Dropout(args.drop_out),
+            nn.Linear(args.hidden_size, 2)
+        )
+        self.imp_opi_classifier = nn.Sequential(
+            nn.Dropout(args.drop_out),
+            nn.Linear(args.hidden_size, 2)
+        )
     def forward(self, input_bert_features, attention_mask, spans, span_mask, related_spans_tensor, pooler_output,sentence_length):
         # 调用 span_generator 方法生成 spans_embedding 和 features_mask_tensor 两个变量。
         # 其中 spans_embedding 表示每个 span 的嵌入表示，features_mask_tensor 表示每个 span 是否被标记为有效的情感单元。
@@ -159,31 +166,31 @@ class Step_1(torch.nn.Module):
         # 同样用 sentiment_classification_opinion 层将其映射到具体的情感极性标签上，得到 class_logits_opinion。
         class_logits_opinion = self.sentiment_classification_opinion(span_embedding_2)
 
-        pred_aspect = torch.argmax(F.softmax(class_logits_aspect,dim=2),dim=2)
+        # pred_aspect = torch.argmax(F.softmax(class_logits_aspect,dim=2),dim=2)
 
-        aspect_rep = []
-        opinion_rep = []
+        # aspect_rep = []
+        # opinion_rep = []
         category_label = []
         categories_logits = []
-        if torch.nonzero(pred_aspect, as_tuple=False).size(0) != 0:
-            pred_opinion = torch.argmax(F.softmax(class_logits_opinion, dim=2), dim=2)
-            if torch.nonzero(pred_opinion, as_tuple=False).size(0) != 0:
-                opinion_span = torch.chunk(torch.nonzero(pred_opinion, as_tuple=False),
-                                           torch.nonzero(pred_opinion, as_tuple=False).shape[0], dim=0)
-                aspect_span = torch.chunk(torch.nonzero(pred_aspect, as_tuple=False),
-                                           torch.nonzero(pred_aspect, as_tuple=False).shape[0], dim=0)
-
-                real_pair = torch.tensor(self.cal_real(sentence_length[0][3],spans[0]))
-                pred_pair  = torch.tensor([[aspect_span[i][0][1], opinion_span[j][0][1]] for i in range(len(aspect_span)) for j in range(len(opinion_span))])
-                for aspect_idx in aspect_span:
-                    aspect_rep.append(spans_embedding[aspect_idx[0][0], aspect_idx[0][1]])
-                aspect_rep = torch.stack(aspect_rep)
-                for opinion_idx in opinion_span:
-                    opinion_rep.append(spans_embedding[opinion_idx[0][0], opinion_idx[0][1]])
-                opinion_rep = torch.stack(opinion_rep)
-                category_label = self.create_category_label(real_pair,pred_pair,sentence_length[0][4])
-                cartesian_products = self.cartesian_product(aspect_rep,opinion_rep)
-                categories_logits = self.category_classifier(cartesian_products)
+        # if torch.nonzero(pred_aspect, as_tuple=False).size(0) != 0:
+        #     pred_opinion = torch.argmax(F.softmax(class_logits_opinion, dim=2), dim=2)
+        #     if torch.nonzero(pred_opinion, as_tuple=False).size(0) != 0:
+        #         opinion_span = torch.chunk(torch.nonzero(pred_opinion, as_tuple=False),
+        #                                    torch.nonzero(pred_opinion, as_tuple=False).shape[0], dim=0)
+        #         aspect_span = torch.chunk(torch.nonzero(pred_aspect, as_tuple=False),
+        #                                    torch.nonzero(pred_aspect, as_tuple=False).shape[0], dim=0)
+        #
+        #         real_pair = torch.tensor(self.cal_real(sentence_length[0][3],spans[0]))
+        #         pred_pair  = torch.tensor([[aspect_span[i][0][1], opinion_span[j][0][1]] for i in range(len(aspect_span)) for j in range(len(opinion_span))])
+        #         for aspect_idx in aspect_span:
+        #             aspect_rep.append(spans_embedding[aspect_idx[0][0], aspect_idx[0][1]])
+        #         aspect_rep = torch.stack(aspect_rep)
+        #         for opinion_idx in opinion_span:
+        #             opinion_rep.append(spans_embedding[opinion_idx[0][0], opinion_idx[0][1]])
+        #         opinion_rep = torch.stack(opinion_rep)
+        #         category_label = self.create_category_label(real_pair,pred_pair,sentence_length[0][4])
+        #         cartesian_products = self.cartesian_product(aspect_rep,opinion_rep)
+        #         categories_logits = self.category_classifier(cartesian_products)
         return class_logits_aspect, class_logits_opinion, spans_embedding, span_embedding_1, span_embedding_2, \
                features_mask_tensor,categories_logits,category_label
 
@@ -398,10 +405,12 @@ class Step_3_categories(torch.nn.Module):
         self.args = args
         self.fc = nn.Linear(768*2, len(categories))
         self.dropout = nn.Dropout(0.5)
-
+        self.decoders = nn.ModuleList(
+            [Step_1_module(args, self.bert_config) for _ in range(max(1, args.block_num - 1))])
     def forward(self,spans_embedding,bert_spans_tensor,pairs,category_label=None):
         if category_label == None:
             category_logits = self.fc(pairs)
+            # category_logits = self.dropout(category_logits)
             return category_logits,[]
         else:
             real_pair = self.cal_real(pairs,bert_spans_tensor[0])
@@ -417,6 +426,7 @@ class Step_3_categories(torch.nn.Module):
                 else:
                     input_rep= torch.cat((input_rep,final_rep),dim=0)
             category_logits = self.fc(input_rep)
+            # category_logits = self.dropout(category_logits)
             category_label = category_label
             return category_logits,category_label
     def cal_real(self,ao_pair,spans):

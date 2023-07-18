@@ -11,8 +11,7 @@ from models.eval_features import unbatch_data
 from log import logger
 from thop import profile, clever_format
 import time
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -22,6 +21,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
         step_1_model.eval()
         step_2_forward.eval()
         step_2_reverse.eval()
+        step_3_category.eval()
         '''真实结果'''
         gold_instances = []
         '''前向预测结果'''
@@ -134,6 +134,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 pred_span_aspect_tensor = None
                 for pred_aspect_span in pred_aspect_spans:
                     batch_num = pred_aspect_span.squeeze()[0]
+                   # if int(pred_aspect_span.squeeze()[1]) == len(bert_spans_tensor[batch_num]) - 1:
+                   #     continue
                     span_aspect_tensor_unspilt_1 = bert_spans_tensor[batch_num, pred_aspect_span.squeeze()[1], :2]
                     span_aspect_tensor_unspilt = torch.tensor(
                         (batch_num, span_aspect_tensor_unspilt_1[0], span_aspect_tensor_unspilt_1[1])).unsqueeze(0)
@@ -172,6 +174,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 reverse_span_opinion_tensor = None
                 for reverse_pred_opinion_span in reverse_pred_opinion_spans:
                     batch_num = reverse_pred_opinion_span.squeeze()[0]
+                   ## if int(reverse_pred_opinion_span.squeeze()[1]) == 0:
+                    #    continue
                     reverse_opinion_tensor_unspilt = bert_spans_tensor[batch_num, reverse_pred_opinion_span.squeeze()[1], :2]
                     reverse_opinion_tensor_unspilt = torch.tensor(
                         (batch_num, reverse_opinion_tensor_unspilt[0], reverse_opinion_tensor_unspilt[1])).unsqueeze(0)
@@ -249,6 +253,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
     step_1_model.train()
     step_2_forward.train()
     step_2_reverse.train()
+    step_3_category.train()
     return quad_result
 
 
@@ -258,17 +263,18 @@ def train(args):
 
     torch.cuda.current_device()
     torch.cuda._initialized = True
-    # if args.dataset_path == './datasets/BIO_form/':
-    #     train_path = args.dataset_path + args.dataset + "/train.json"
-    #     dev_path = args.dataset_path + args.dataset + "/dev.json"
-    #     test_path = args.dataset_path + args.dataset + "/test.json"
-    # else:
-    #     train_path = args.dataset_path + args.dataset + "/train_triplets.txt"
-    #     dev_path = args.dataset_path + args.dataset + "/dev_triplets.txt"
-    #     test_path = args.dataset_path + args.dataset + "/test_triplets.txt"
-    train_path = "./datasets/Restaurant-ACOS/rest16_quad_train.tsv"
-    test_path = "./datasets/Restaurant-ACOS/rest16_quad_test.tsv"
-    dev_path = "./datasets/Restaurant-ACOS/rest16_quad_dev.tsv"
+    if args.dataset == 'restaurant':
+        train_path = "./datasets/Restaurant-ACOS/rest16_quad_train.tsv"
+        test_path = "./datasets/Restaurant-ACOS/rest16_quad_test.tsv"
+        dev_path = "./datasets/Restaurant-ACOS/rest16_quad_dev.tsv"
+    else:
+        train_path = "./datasets/Laptop-ACOS/laptop_quad_train.tsv"
+        test_path = "./datasets/Laptop-ACOS/laptop_quad_test.tsv"
+        dev_path = "./datasets/Laptop-ACOS/laptop_quad_dev.tsv"
+
+
+
+
     print('-------------------------------')
     print('开始加载测试集')
     logger.info('开始加载测试集')
@@ -322,7 +328,7 @@ def train(args):
         print('-------------------------------')
         logger.info('开始加载训练与验证集')
         print('开始加载训练与验证集')
-        train_datasets = load_data1(args, train_path, if_train=False)
+        train_datasets = load_data1(args, train_path, if_train=True)
         trainset = DataTterator2(train_datasets, args)
         print("Train features build completed")
 
@@ -344,7 +350,7 @@ def train(args):
 
         tot_loss = 0
         tot_kl_loss = 0
-        best_aspect_f1, best_opinion_f1, best_APCE_f1, best_pairs_f1, best_quad_f1 = 0,0,0,0,0
+        best_aspect_f1, best_opinion_f1, best_APCE_f1, best_pairs_f1, best_quad_f1,best_quad_precision,best_quad_recall = 0,0,0,0,0,0,0
         best_quad_epoch= 0
         for i in range(args.epochs):
             logger.info(('Epoch:{}'.format(i)))
@@ -481,13 +487,14 @@ def train(args):
             #     best_pairs_recall = pair_result[1]
             #     best_pairs_epoch = i
 
-            if quad_result[2] > best_quad_f1 and quad_result[2] > 0.55:
+            if quad_result[2] > best_quad_f1 and quad_result[2] > 0.35:
                 model_path = args.model_dir +args.dataset +'_'+ str(quad_result[2]) + '.pt'
                 state = {
                     "bert_model": Bert.state_dict(),
                     "step_1_model": step_1_model.state_dict(),
                     "step2_forward_model": step2_forward_model.state_dict(),
                     "step2_reverse_model": step2_reverse_model.state_dict(),
+                    "step_3_category":step_3_category.state_dict(),
                     "optimizer": optimizer.state_dict()
                 }
                 torch.save(state, model_path)
@@ -499,7 +506,9 @@ def train(args):
                 best_quad_precision = quad_result[0]
                 best_quad_recall = quad_result[1]
                 best_quad_epoch = i
-
+            logger.info(
+                'best triple epoch: {}\tbest triple precision: {:.8f}\tbest triple recall: {:.8f}\tbest triple f1: {:.8f}'.
+                format(best_quad_epoch, best_quad_precision, best_quad_recall, best_quad_f1))
         # logger.info(
         #     'best aspect epoch: {}\tbest aspect precision: {:.8f}\tbest aspect recall: {:.8f}\tbest aspect f1: {:.8f}'.
         #         format(best_aspect_epoch, best_aspect_precision, best_aspect_recall, best_aspect_f1))
@@ -519,7 +528,7 @@ def train(args):
     logger.info("Evaluation on testset:")
 
     model_path = args.model_dir + args.dataset+'_'+str(best_quad_f1) + '.pt'
-    #model_path = args.model_dir +args.dataset +'_'+ str(0.6265060240963854) + '.pt'
+    #model_path = args.model_dir + 'restaurant_0.45739910313901344.pt'
     if args.muti_gpu:
         state = torch.load(model_path)
     else:
@@ -530,6 +539,7 @@ def train(args):
     step_1_model.load_state_dict(state['step_1_model'])
     step2_forward_model.load_state_dict(state['step2_forward_model'])
     step2_reverse_model.load_state_dict(state['step2_reverse_model'])
+    step_3_category.load_state_dict(state['step_3_category'])
     eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
 
 def load_with_single_gpu(model_path):
@@ -562,14 +572,14 @@ def main():
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--muti_gpu", default=True)
-    parser.add_argument('--epochs', type=int, default=100, help='training epoch number')
+    parser.add_argument('--epochs', type=int, default=130, help='training epoch number')
     parser.add_argument("--train_batch_size", default=1, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2022, help="")
     '''修改了数据格式'''
     parser.add_argument("--dataset_path", default="./datasets/ASTE-Data-V2-EMNLP2020/",
                         choices=["./datasets/BIO_form/", "./datasets/ASTE-Data-V2-EMNLP2020/","./datasets/Restaurant-ACOS/"],
                         help="")
-    parser.add_argument("--dataset", default="lap14", type=str, choices=["lap14", "res14", "res15", "res16"],
+    parser.add_argument("--dataset", default="laptop", type=str, choices=["restaurant", "laptop"],
                         help="specify the dataset")
     parser.add_argument('--mode', type=str, default="train", choices=["train", "test"], help='option: train, test')
     '''对相似Span进行attention'''
@@ -613,5 +623,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+
     except KeyboardInterrupt:
         logger.info("keyboard break")
