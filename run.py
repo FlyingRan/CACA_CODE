@@ -61,7 +61,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             #         'STEP 1 MACs:  {}\tSTEP 1 Params: {:.8f}\n\n'.format(macs, param))
 
             aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
-            cnn_spans_mask_tensor,category_class_logits,category_label = step_1_model(
+            cnn_spans_mask_tensor,imp_aspect_exist,imp_opinion_exist = step_1_model(
                 bert_features.last_hidden_state, attention_mask, bert_spans_tensor, spans_mask_tensor,
                 related_spans_tensor, bert_features.pooler_output,sentence_length)
  
@@ -72,6 +72,9 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                                              torch.tensor(0).type_as(pred_aspect_logits))
 
 
+            pred_imp_aspect = torch.argmax(F.softmax(imp_aspect_exist,dim=1),dim=1)
+            pred_imp_opinion = torch.argmax(F.softmax(imp_opinion_exist,dim=1),dim=1)
+
             # pred_category_logits = torch.where(spans_mask_tensor == 1,pred_category_logits,
             #                                    torch.tensor(0).type_as(pred_category_logits))
 
@@ -80,6 +83,11 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             reverse_pred_stage1_logits = torch.where(spans_mask_tensor == 1, reverse_pred_stage1_logits,
                                              torch.tensor(0).type_as(reverse_pred_stage1_logits))
 
+            pred_aspect_logits[0][0] = pred_imp_aspect[0]
+            pred_aspect_logits[0][len(pred_aspect_logits[0]) - 1] = 0
+
+            reverse_pred_stage1_logits[0][len(reverse_pred_stage1_logits[0]) - 1] = pred_imp_opinion[0]
+            reverse_pred_stage1_logits[0][0] = 0
             '''真实结果合成'''
             gold_instances.append(dataset.instances[j])
             if torch.nonzero(pred_aspect_logits, as_tuple=False).shape[0] !=0\
@@ -91,7 +99,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 pred_pair = torch.tensor(
                     [[aspect_span[i][0][1], opinion_span[j][0][1]]
                      for i in range(len(aspect_span)) for j in range(len(opinion_span))])
-                aspect_rep = opinion_rep =[]
+                aspect_rep = []
+                opinion_rep = []
                 for aspect_idx in aspect_span:
                     aspect_rep.append(spans_embedding[aspect_idx[0][0], aspect_idx[0][1]])
                 aspect_rep = torch.stack(aspect_rep)
@@ -384,14 +393,16 @@ def train(args):
                 #                                                                       related_spans_tensor,
                 #                                                                       sentence_length)
                 aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
-                cnn_spans_mask_tensor,class_logits_category,category_labels = step_1_model(
+                cnn_spans_mask_tensor,imp_aspect_exist,imp_opinion_exist = step_1_model(
                                                                             bert_output.last_hidden_state,
                                                                             attention_mask,
                                                                             bert_spans_tensor,
                                                                             spans_mask_tensor,
                                                                             related_spans_tensor,
                                                                             bert_output.pooler_output,
-                                                                            sentence_length)
+                                                                            sentence_length,
+
+                )
 
                 category_logits,category_label = step_3_category(spans_embedding,bert_spans_tensor,sentence_length[0][3],sentence_length[0][4][0])
                 is_aspect = True
@@ -421,7 +432,8 @@ def train(args):
                 # opinion->aspect
                 step_2_aspect_class_logits, aspect_attention = step2_reverse_model(reverse_spans_embedding,
                     reverse_span_mask, all_reverse_opinion_tensor)
-
+                exist_aspect = spans_ner_label_tensor[:,0]
+                exist_opinion = reverse_ner_label_tensor[range(reverse_ner_label_tensor.shape[0]), torch.sum(spans_mask_tensor, dim=-1) - 1]
                 # 计算loss和KL loss
                 # loss, kl_loss = Loss(spans_ner_label_tensor, aspect_class_logits, all_span_opinion_tensor, step_2_opinion_class_logits,
                 #             spans_mask_tensor, all_span_mask, reverse_ner_label_tensor, opinion_class_logits,
@@ -435,6 +447,8 @@ def train(args):
                                      cnn_spans_mask_tensor,reverse_span_mask,
                                      spans_embedding, related_spans_tensor,
                                      category_label,category_logits,
+                                     exist_aspect,exist_opinion,
+                                     imp_aspect_exist, imp_opinion_exist,
                                      args)
                 if args.accumulation_steps > 1:
                     loss = loss / args.accumulation_steps

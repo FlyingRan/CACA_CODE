@@ -137,11 +137,11 @@ class Step_1(torch.nn.Module):
         self.categories_classification_opinion = nn.Linear(args.bert_feature_dim, len(categories))
         self.imp_asp_classifier = nn.Sequential(
             nn.Dropout(args.drop_out),
-            nn.Linear(args.hidden_size, 2)
+            nn.Linear(args.bert_feature_dim, 2)
         )
         self.imp_opi_classifier = nn.Sequential(
             nn.Dropout(args.drop_out),
-            nn.Linear(args.hidden_size, 2)
+            nn.Linear(args.bert_feature_dim, 2)
         )
     def forward(self, input_bert_features, attention_mask, spans, span_mask, related_spans_tensor, pooler_output,sentence_length):
         # 调用 span_generator 方法生成 spans_embedding 和 features_mask_tensor 两个变量。
@@ -156,7 +156,7 @@ class Step_1(torch.nn.Module):
         # 将最后一个解码器的输出结果作为情感极性关于 aspect 的预测结果，
         # 使用 sentiment_classification_aspect 层将其映射到具体的情感极性标签上，得到 class_logits_aspect。
         class_logits_aspect = self.sentiment_classification_aspect(span_embedding_1)
-        class_logits_category = self.categories_classification_opinion(span_embedding_1)
+        # class_logits_category = self.categories_classification_opinion(span_embedding_1)
         # 复制 spans_embedding 得到 span_embedding_1 和 span_embedding_2 两个变量，
         # 然后分别将它们输入到 forward_1_decoders 和 reverse_1_decoders 中进行解码。
         span_embedding_2 = torch.clone(spans_embedding)
@@ -165,7 +165,8 @@ class Step_1(torch.nn.Module):
             span_embedding_2 = reverse_layer_output
         # 同样用 sentiment_classification_opinion 层将其映射到具体的情感极性标签上，得到 class_logits_opinion。
         class_logits_opinion = self.sentiment_classification_opinion(span_embedding_2)
-
+        imp_aspect_exist = self.imp_asp_classifier(spans_embedding[:,0,:])
+        imp_opinion_exist = self.imp_opi_classifier(spans_embedding[range(spans_embedding.shape[0]), torch.sum(span_mask, dim=-1) - 1])
         # pred_aspect = torch.argmax(F.softmax(class_logits_aspect,dim=2),dim=2)
 
         # aspect_rep = []
@@ -192,7 +193,7 @@ class Step_1(torch.nn.Module):
         #         cartesian_products = self.cartesian_product(aspect_rep,opinion_rep)
         #         categories_logits = self.category_classifier(cartesian_products)
         return class_logits_aspect, class_logits_opinion, spans_embedding, span_embedding_1, span_embedding_2, \
-               features_mask_tensor,categories_logits,category_label
+               features_mask_tensor,imp_aspect_exist,imp_opinion_exist
 
     def create_category_label(self,real_pair,pred_pair,real_category):
         final_label = []
@@ -405,8 +406,6 @@ class Step_3_categories(torch.nn.Module):
         self.args = args
         self.fc = nn.Linear(768*2, len(categories))
         self.dropout = nn.Dropout(0.5)
-        self.decoders = nn.ModuleList(
-            [Step_1_module(args, self.bert_config) for _ in range(max(1, args.block_num - 1))])
     def forward(self,spans_embedding,bert_spans_tensor,pairs,category_label=None):
         if category_label == None:
             category_logits = self.fc(pairs)
@@ -471,7 +470,7 @@ class Step_2_reverse(torch.nn.Module):
 def Loss(gold_aspect_label, pred_aspect_label, gold_opinion_label, pred_opinion_label, spans_mask_tensor, opinion_span_mask_tensor,
          reverse_gold_opinion_label, reverse_pred_opinion_label, reverse_gold_aspect_label, reverse_pred_aspect_label,
          cnn_spans_mask_tensor, reverse_aspect_span_mask_tensor, spans_embedding, related_spans_tensor,gold_category_label,
-         pred_category_label,args):
+         pred_category_label, exist_aspect,exist_opinion,imp_aspect_exist,imp_opinion_exist,args):
     loss_function = nn.CrossEntropyLoss(reduction='sum')
     if cnn_spans_mask_tensor is not None:
         spans_mask_tensor = cnn_spans_mask_tensor
@@ -517,13 +516,14 @@ def Loss(gold_aspect_label, pred_aspect_label, gold_opinion_label, pred_opinion_
                                                torch.tensor(loss_function.ignore_index).type_as(reverse_gold_aspect_label))
     reverse_aspect_loss = loss_function(reverse_pred_aspect_label_logits, reverse_gold_aspect_effective_label)
     op_2_as_loss = reverse_opinion_loss + reverse_aspect_loss
-
+    imp_aspect_loss = loss_function(imp_aspect_exist, exist_aspect.view(-1))
+    imp_opinion_loss = loss_function(imp_opinion_exist, exist_opinion.view(-1))
     if args.kl_loss:
         kl_loss = shape_span_embedding(args, spans_embedding, spans_embedding, related_spans_tensor, spans_mask_tensor)
         # loss = as_2_op_loss + op_2_as_loss + kl_loss
-        loss = as_2_op_loss + op_2_as_loss + args.kl_loss_weight * kl_loss
+        loss = as_2_op_loss + op_2_as_loss + args.kl_loss_weight * kl_loss + imp_aspect_loss + imp_opinion_loss
     else:
-        loss = as_2_op_loss + op_2_as_loss
+        loss = as_2_op_loss + op_2_as_loss + imp_aspect_loss + imp_opinion_loss
         kl_loss = 0
     return loss, args.kl_loss_weight * kl_loss
 
