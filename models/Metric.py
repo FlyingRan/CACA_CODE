@@ -216,7 +216,7 @@ class Metric():
                     for j, triple in enumerate(pred_triples):
                         if triple[0] == aspect and triple[1] == opinion:
                             quad_list.append((aspect, opinion, id2category[a_o_c[2]], triple[2]))
-
+                            break
             gold_num, pred_num, correct_num = self.num_4_eval(gold_quad, pred_quad, gold_num,
                                                               pred_num, correct_num)
             if self.args.output_path:
@@ -476,11 +476,14 @@ class Metric():
         else:
             return " "
     def find_opinion_sentiment(self, sentence_index, opinion_index, bert_spans, span, opinion_sentiment,
-                               opinion_sentiment_logit):
+                               opinion_sentiment_logit,is_aspect=True):
         bert_span_index = [i for i, x in enumerate(bert_spans) if span[1] == x[0] and span[2] == x[1]]
         # if bert_span_index == 0:
         # assert len(bert_span_index) == 1
-        bert_span_index = bert_span_index[0]
+        if(len(bert_span_index)>1 and is_aspect==False):
+            bert_span_index = bert_span_index[1]
+        else:
+            bert_span_index = bert_span_index[0]
         sentiment_index = opinion_sentiment[sentence_index][opinion_index][bert_span_index]
         sentiment = id4sentiment[opinion_sentiment[sentence_index][opinion_index][bert_span_index]]
         sentiment_logit = opinion_sentiment_logit[sentence_index][opinion_index][bert_span_index][sentiment_index]
@@ -666,7 +669,7 @@ class Metric():
                     new_aspect_span.append(pred_aspect)
         for j, pred_aspect in enumerate(new_aspect_span):
             if pred_aspect[1] == 0:
-                aspect = "CLS"
+                aspect = "[CLS]"
             else:
                 aspect = self.find_token(bert_tokens, pred_aspect)
             aspect_span_output = [pred_aspect[1], pred_aspect[2]+1]#隐含情况：【0，1】
@@ -703,13 +706,15 @@ class Metric():
                 opinion_span = (opinion_span[2], opinion_span[0], opinion_span[1])
                 opinion_span_output = [opinion_span[1], opinion_span[2]+1]
                 if (opinion_span[2] == 0):
-                    opinion = 'CLS'
+                    opinion = '[CLS]'
                 else:
                     opinion = self.find_token(bert_tokens, opinion_span)
                 opinion_sentiment, opinion_sentiment_logit = self.find_opinion_sentiment(sentence_index, j, bert_spans,
                                                                                          opinion_span,
                                                                                          self.pred_opinion,
-                                                                                         self.pred_opinion_sentiment_logit)
+                                                                                         self.pred_opinion_sentiment_logit,
+                                                                                         False
+                                                                                         )
                 # 筛选情感  弃用
                 # if opinion_sentiment_logit > aspect_sentiment_logit:
                 #     sentiment = opinion_sentiment

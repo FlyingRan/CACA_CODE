@@ -165,8 +165,11 @@ class Step_1(torch.nn.Module):
             span_embedding_2 = reverse_layer_output
         # 同样用 sentiment_classification_opinion 层将其映射到具体的情感极性标签上，得到 class_logits_opinion。
         class_logits_opinion = self.sentiment_classification_opinion(span_embedding_2)
-        imp_aspect_exist = self.imp_asp_classifier(spans_embedding[:,0,:])
-        imp_opinion_exist = self.imp_opi_classifier(spans_embedding[range(spans_embedding.shape[0]), torch.sum(span_mask, dim=-1) - 1])
+
+        span_embedding_3 = torch.clone(spans_embedding)
+        span_embedding_4 = torch.clone(spans_embedding)
+        imp_aspect_exist = self.imp_asp_classifier(span_embedding_3[:,0,:])
+        imp_opinion_exist = self.imp_opi_classifier(span_embedding_4[range(span_embedding_4.shape[0]), torch.sum(span_mask, dim=-1) - 1])
         # pred_aspect = torch.argmax(F.softmax(class_logits_aspect,dim=2),dim=2)
 
         # aspect_rep = []
@@ -251,6 +254,9 @@ class Step_1(torch.nn.Module):
             # 如果使用全部span的bert信息：
             spans_num = spans.shape[1]# 有多少个span 包括了前后的【0，0，0】
             spans_width_start_end = spans[:, :, 0:2].view(spans.size(0), spans_num, -1)# 取所有span的前两位
+            spans_width_start_end[0, -1] = spans_width_start_end[0, -2].clone()
+            spans_width_start_end[0, -1][0] = spans_width_start_end[0, -1][1] + 1
+            spans_width_start_end[0, -1][1] = spans_width_start_end[0, -1][1] + 1
             spans_width_start_end_embedding, spans_width_start_end_mask = batched_span_select(bert_feature,
                                                                                               spans_width_start_end)
             spans_width_start_end_mask = spans_width_start_end_mask.unsqueeze(-1).expand(-1, -1, -1,
@@ -259,14 +265,15 @@ class Step_1(torch.nn.Module):
                                                           torch.tensor(0).type_as(spans_width_start_end_embedding))
 
             if self.args.span_generation == "Max":
-                spans_width_start_end_max = spans_width_start_end_embedding.max(2)
+                masked_representations = spans_width_start_end_embedding.masked_fill(~spans_width_start_end_mask,float('-inf'))
+                spans_width_start_end_max = masked_representations.max(2)
                 spans_embedding = spans_width_start_end_max[0]
             else:
                 spans_width_start_end_mean = spans_width_start_end_embedding.mean(dim=2, keepdim=True).squeeze(-2)
                 spans_embedding = spans_width_start_end_mean
-            for i in range(len(sentence_length)):
-                spans_embedding[i][0] = pooler_output[i].squeeze()
-                spans_embedding[i][sentence_length[i][2]-1] = pooler_output[i].squeeze()
+            # for i in range(len(sentence_length)):
+            #     spans_embedding[i][0] = pooler_output[i].clone().squeeze()
+            #     spans_embedding[i][sentence_length[i][2]-1] = pooler_output[i].clone().squeeze()
         elif self.args.span_generation == "Start_end":
             # 如果使用span区域大小进行embedding
             spans_start = spans[:, :, 0].view(spans.size(0), -1)
@@ -406,9 +413,13 @@ class Step_3_categories(torch.nn.Module):
         self.args = args
         self.fc = nn.Linear(768*2, len(categories))
         self.dropout = nn.Dropout(0.5)
+        self.category_classifier = nn.Sequential(
+            nn.Dropout(args.drop_out),
+            nn.Linear(args.bert_feature_dim*2, len(categories))
+        )
     def forward(self,spans_embedding,bert_spans_tensor,pairs,category_label=None):
         if category_label == None:
-            category_logits = self.fc(pairs)
+            category_logits = self.category_classifier(pairs)
             # category_logits = self.dropout(category_logits)
             return category_logits,[]
         else:
@@ -424,7 +435,7 @@ class Step_3_categories(torch.nn.Module):
                     input_rep = final_rep
                 else:
                     input_rep= torch.cat((input_rep,final_rep),dim=0)
-            category_logits = self.fc(input_rep)
+            category_logits = self.category_classifier(input_rep)
             # category_logits = self.dropout(category_logits)
             category_label = category_label
             return category_logits,category_label
