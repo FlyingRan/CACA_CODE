@@ -86,12 +86,13 @@ class Attention(nn.Module):
     def forward(
         self,
         hidden_states,
+        lstm_states,
         attention_mask=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
     ):
         self_outputs = self.self(
-            hidden_states,
+            lstm_states,
             attention_mask,
             encoder_hidden_states,
             encoder_attention_mask)
@@ -152,17 +153,17 @@ class SelfAttention(nn.Module):
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
+
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        attention_scores = attention_scores/math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
+
             attention_scores = attention_scores + attention_mask
-        # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
+
+        attention_probs = nn.Softmax(dim=-2)(attention_scores)
+
+
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -184,7 +185,7 @@ class SelfOutput(nn.Module):
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        hidden_states = self.LayerNorm(hidden_states+input_tensor)
         return hidden_states
 
 class Output(nn.Module):

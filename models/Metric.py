@@ -205,6 +205,7 @@ class Metric():
             pred_category_span = self.pred_aspect_category[i]
             quad_list = []
             if len(pred_category_span) > 0:
+                #pred_category_span = list({tuple(data): data for data in pred_category_span}.values()) #去重
                 for j, a_o_c in enumerate(pred_category_span):
                     aspect_span = bert_spans[a_o_c[0]]
                     aspect_span = (aspect_span[2], aspect_span[0], aspect_span[1])
@@ -217,8 +218,9 @@ class Metric():
                         if triple[0] == aspect and triple[1] == opinion:
                             quad_list.append((aspect, opinion, id2category[a_o_c[2]], triple[2]))
                             break
-            gold_num, pred_num, correct_num = self.num_4_eval(gold_quad, pred_quad, gold_num,
+            gold_num, pred_num, correct_num = self.num_4_eval(gold_quad, quad_list, gold_num,
                                                               pred_num, correct_num)
+
             if self.args.output_path:
                 if len(gold_quad)<2:
                     result1.append({"sentence": self.gold_instances[i]['sentence'],
@@ -241,6 +243,7 @@ class Metric():
                                    "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
                                    "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
                                    })
+
             # # pred_aspect = reverse_aspect
             # # pred_opinion = reverse_opinion
             # # pred_apce = reverse_apce
@@ -727,6 +730,7 @@ class Metric():
                 pair_list.append((aspect, opinion))
                 span_list.append((aspect_span_output, opinion_span_output, opinion_sentiment_logit))
                 # quad_list.append((aspect,opinion,category,opinion_sentiment))
+        '''
         if len(pred_category_span)>0:
             for i,a_o_c in enumerate(pred_category_span):
                 aspect_span = bert_spans[a_o_c[0]]
@@ -739,6 +743,7 @@ class Metric():
                 for j,triple in enumerate(triples_list):
                     if triple[0]==aspect and triple[1] == opinion:
                         quad_list.append((aspect,opinion,id2category[a_o_c[2]],triple[2]))
+        '''
         return aspect_list, pred_opinion_list, apce_list, pair_list, triples_list, span_list,quad_list,category_list
     def find_pred_reverse_triples(self, sentence_index, bert_spans, bert_tokens):
         triples_list, pair_list, span_list = [], [], []

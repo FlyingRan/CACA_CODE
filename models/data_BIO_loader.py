@@ -590,9 +590,9 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
             for j in range(len(span_tokens)):
                 differ_span_token = span_tokens[j].split(' ')
                 if set(span_token) & set(differ_span_token) == set():
-                    related_spans[i, j] = 0
+                    related_spans[i+1, j+1] = 0
                 else:
-                    related_spans[i, j] = 1
+                    related_spans[i+1, j+1] = 1
 
         sample['related_span_array'] = related_spans
         sample['spans'], sample['span tokens'], sample['spans_aspect_label'], sample[
@@ -1219,7 +1219,7 @@ class DataTterator2(object):
         final_spans_aspect_tensor = None
         final_spans_opinion_label_tensor = None
 
-        final_spans_category_label_tensor = None
+       # final_spans_category_label_tensor = None
 
         final_reverse_ner_label_tensor = None
         final_reverse_opinion_tensor = None
@@ -1276,7 +1276,7 @@ class DataTterator2(object):
                 final_spans_mask_tensor = spans_mask_tensor
                 final_spans_ner_label_tensor = spans_ner_label_tensor
 
-                final_spans_category_label_tensor = spans_category_label_tensor
+               # final_spans_category_label_tensor = spans_category_label_tensor
 
                 final_spans_aspect_tensor = spans_aspect_tensor.squeeze(0)
                 final_spans_opinion_label_tensor = spans_opinion_label_tensor.squeeze(0)
@@ -1292,7 +1292,7 @@ class DataTterator2(object):
 
                 final_spans_ner_label_tensor = torch.cat((final_spans_ner_label_tensor, spans_ner_label_tensor), dim=0)
 
-                final_spans_category_label_tensor = torch.cat((final_spans_category_label_tensor, spans_category_label_tensor), dim=0)
+                #final_spans_category_label_tensor = torch.cat((final_spans_category_label_tensor, spans_category_label_tensor), dim=0)
 
 
                 final_spans_aspect_tensor = torch.cat(
@@ -1315,7 +1315,7 @@ class DataTterator2(object):
         final_spans_mask_tensor = final_spans_mask_tensor.to(self.args.device)
         final_spans_ner_label_tensor = final_spans_ner_label_tensor.to(self.args.device)
 
-        final_spans_category_label_tensor = final_spans_category_label_tensor.to(self.args.device)
+       # final_spans_category_label_tensor = final_spans_category_label_tensor.to(self.args.device)
 
         final_spans_aspect_tensor = final_spans_aspect_tensor.to(self.args.device)
         final_spans_opinion_label_tensor = final_spans_opinion_label_tensor.to(self.args.device)
@@ -1326,7 +1326,7 @@ class DataTterator2(object):
         return final_tokens_tensor, final_attention_mask, final_bert_spans_tensor, final_spans_mask_tensor, \
                final_spans_ner_label_tensor, final_spans_aspect_tensor, final_spans_opinion_label_tensor, \
                final_reverse_ner_label_tensor, final_reverse_opinion_tensor, final_reverse_aspect_label_tensor, \
-               final_related_spans_tensor, sentence_length,final_spans_category_label_tensor
+               final_related_spans_tensor, sentence_length
 
 
     def get_input_tensors(self, tokenizer, tokens, spans, spans_ner_label, spans_aspect_labels, spans_opinion_label,
