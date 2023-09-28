@@ -175,7 +175,7 @@ class Step_1(torch.nn.Module):
         )
         self.imp_opi_classifier = nn.Sequential(
             nn.Dropout(args.drop_out),
-            nn.Linear(args.bert_feature_dim+128, 2)
+            nn.Linear(args.bert_feature_dim, 2)
         )
         self.compess_projection = nn.Sequential(nn.Linear(args.bert_feature_dim, 1), nn.ReLU(),
                                                     nn.Dropout(args.drop_out))
@@ -217,26 +217,24 @@ class Step_1(torch.nn.Module):
             opinion_imp_layer_output, opinion_imp_intermediate_output = opinion_imp_decoder(span_embedding_4)
             span_embedding_4 = opinion_imp_layer_output
 
-        input_vector1 = span_embedding_3[:,0,:].unsqueeze(1)
-        input_vector2 = span_embedding_4[range(span_embedding_4.shape[0]), torch.sum(span_mask, dim=-1) - 1].unsqueeze(1)
+        output1, _ = self.multhead_asp(span_embedding_3, span_embedding_3, span_embedding_3)
+        output2, _ = self.multhead_opi(span_embedding_4, span_embedding_4, span_embedding_4)
+        input_vector1 = output1[:,0,:].unsqueeze(1)
+        input_vector2 = output2[range(span_embedding_4.shape[0]), torch.sum(span_mask, dim=-1) - 1].unsqueeze(1)
 
-
-        #output1, _ = self.multhead_asp(input_vector1, input_vector1, input_vector1)
-        output2, _ = self.multhead_opi(input_vector2, input_vector2, input_vector2)
 
         #output1 = output1.view(span_embedding_3.shape[0], -1)
-        output2 = output2.view(span_embedding_4.shape[0], -1)
+        input_vector2 = input_vector2.view(span_embedding_4.shape[0], -1)
 
 
-        final_aspect_rep = input_vector1.view(span_embedding_3.shape[0], -1)
+        input_vector1 = input_vector1.view(span_embedding_3.shape[0], -1)
         #output2 = input_vector2.view(span_embedding_4.shape[0], -1)
 
-        opinion_lst_rep = self.opinion_lstm(span_embedding_4)
-        final_opinion_rep = torch.cat((output2,opinion_lst_rep),dim=-1)
-        imp_aspect_exist = self.imp_asp_classifier(final_aspect_rep)
-        imp_opinion_exist = self.imp_opi_classifier(final_opinion_rep)
+        #opinion_lst_rep = self.opinion_lstm(input_vector2)
+        #final_opinion_rep = torch.cat((input_vector2,opinion_lst_rep),dim=-1)
+        imp_aspect_exist = self.imp_asp_classifier(input_vector1)
+        imp_opinion_exist = self.imp_opi_classifier(input_vector2)
         # pred_aspect = torch.argmax(F.softmax(class_logits_aspect,dim=2),dim=2)
-
         # aspect_rep = []
         # opinion_rep = []
         #category_label = []
@@ -464,6 +462,7 @@ class Pointer_Block(torch.nn.Module):
         outputs = self.dense(lstm_outputs)
         masks = (1-masks) * -1e9
         # 根据掩码的维度信息确定 attention_masks 的形状
+
         if masks.dim() == 3:
             attention_masks = masks[:, None, :, :]
         elif masks.dim() == 2:
@@ -471,6 +470,7 @@ class Pointer_Block(torch.nn.Module):
                 attention_masks = masks[:, None, None, :]
             else:
                 attention_masks = masks[:, None, :, None]
+                #attention_masks = masks[:,:, None]
         if self.mask_for_encoder:
             cross_attention_output = self.forward_attn(hidden_states=hidden_embedding,
                                                        lstm_states = outputs,
@@ -525,7 +525,7 @@ class Step_3_categories(torch.nn.Module):
         #self.dropout = nn.Dropout(0.5)
         self.category_classifier = nn.Sequential(
             nn.Dropout(args.drop_out),
-            nn.Linear(args.bert_feature_dim*2, len(categories))
+            nn.Linear(args.bert_feature_dim, len(categories))
         )
     def forward(self,spans_embedding,bert_spans_tensor,pairs,category_labels=None):
         if category_labels == None:
@@ -541,11 +541,13 @@ class Step_3_categories(torch.nn.Module):
                     opinion_index = int(pair[1])
                     aspect_rep = spans_embedding[i][aspect_index]
                     opinion_rep = spans_embedding[i][opinion_index]
-                    final_rep = torch.unsqueeze(torch.cat((aspect_rep, opinion_rep),dim=0),0)
+                    # final_rep = torch.unsqueeze(torch.cat((aspect_rep, opinion_rep),dim=0),0)
+                    final_rep = torch.unsqueeze(aspect_rep+opinion_rep,0)
                     if input_rep == []:
                         input_rep = final_rep
                     else:
-                        input_rep= torch.cat((input_rep,final_rep),dim=0)
+                        # input_rep= torch.cat((input_rep,final_rep),dim=0)
+                        input_rep = torch.cat((input_rep, final_rep), dim=0)
             category_logits = self.category_classifier(input_rep)
                 # category_logits = self.dropout(category_logits)
             category_label = torch.cat(category_labels)
@@ -763,6 +765,8 @@ def compute_kl_loss(args, p, q, pad_mask=None):
         total_loss = 0
         print('损失种类错误')
     return  total_loss
+
+
 
 
 if __name__ == '__main__':

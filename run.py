@@ -19,7 +19,7 @@ import numpy as np
 import hyperopt
 from hyperopt import fmin, tpe, hp
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -98,6 +98,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
         pred_imp_opinion_num_total = 0
         pred_imp_asp_opinion_num_total = 0
         pred_emp_num_total = 0
+        opinion_imp_list = []
         for j in range(dataset.batch_count):
             tokens_tensor, attention_mask, bert_spans_tensor, spans_mask_tensor, spans_ner_label_tensor, \
             spans_aspect_tensor, spans_opinion_label_tensor, reverse_ner_label_tensor, reverse_opinion_tensor, \
@@ -190,7 +191,10 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                             if flag6 == 0:
                                 pred_imp_opinion_num += 1
                                 flag6 = 1
-
+                        else:
+                            sentence = " ".join(value[0])
+                            if sentence not in opinion_imp_list:
+                                opinion_imp_list.append(sentence)
                     if element[1] == [0, 0, 0] and element[0] == [0, 0, 0]:
                         flag7 = 1
                         if int(pred_imp_opinion[i]) == 1 and int(pred_imp_aspect[i]) == 1:
@@ -223,7 +227,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             '''真实结果合成'''
             gold_instances.append(dataset.instances[j])
             result = []
-
+            '''
             if torch.nonzero(pred_aspect_logits, as_tuple=False).shape[0] !=0\
                     and torch.nonzero(reverse_pred_stage1_logits, as_tuple=False).shape[0] != 0:
                 opinion_span = torch.chunk(torch.nonzero(reverse_pred_stage1_logits, as_tuple=False),
@@ -249,7 +253,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                     for span in pred_pair:
                         aspect_rep = spans_embedding[int(span[2]), int(span[0])].clone()
                         opinion_rep = spans_embedding[int(span[2]), int(span[1])].clone()
-                        input_rep.append(torch.cat((aspect_rep,opinion_rep),dim=0))
+                        # input_rep.append(torch.cat((aspect_rep,opinion_rep),dim=0))
+                        input_rep.append(aspect_rep+opinion_rep)
                     input_rep = torch.stack(input_rep)
                     # # 使用广播计算笛卡尔积并拼接
                     # expanded_aspect = aspect_rep.unsqueeze(1)
@@ -268,8 +273,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                     category_result.append(result)
             else:
                 category_result.append([])
-
-
+            '''
             if torch.nonzero(pred_aspect_logits, as_tuple=False).shape[0] == 0:
 
                 forward_stage1_pred_aspect_result.append(torch.full_like(spans_aspect_tensor, -1))
@@ -309,7 +313,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 #step1. 找到所有的opinion_index及其表征
                 #step2. 遍历aspect个数，逐个拼接opinion表征，最后输入到step3_category中
                 #step3. 添加到result
-                '''
+
                 output_values, output_indices = torch.max(opinion_class_logits, dim=-1)
                 opinion_list = []
                 batch_list = []
@@ -318,7 +322,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                     opinion_list.append(non_three_indices_row)
                     batch_list.append(int(pred_aspect_spans[k][0][0]))
                 for i, row_indices in enumerate(opinion_list):
-                    # print(f"第{i + 1}行不等于3的索引位置：")
+                    # print(f"hhh第{i + 1}行不等于3的索引位置：")
                     if row_indices.size(0) == 0:
                         continue
                     opinion_rep = []
@@ -330,10 +334,14 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                             break
                         opinion_rep.append(spans_embedding[int(pred_aspect_spans[i][0][0])][index.item()])
                         k += 1
-                    opinion_rep = torch.stack(opinion_rep)
+                    if has_empty_tensor(opinion_rep):
+                        print("1")
+                    if opinion_rep != []:
+                        opinion_rep = torch.stack(opinion_rep)
                     aspect_rep = all_span_aspect_tensor[i][0].clone()
                     aspect_repx3 = aspect_rep.expand(k,-1).to(args.device)
-                    final_rep = torch.cat((aspect_repx3,opinion_rep),dim=1)
+                    # final_rep = torch.cat((aspect_repx3,opinion_rep),dim=1)
+                    final_rep = aspect_repx3 + opinion_rep
                     category_logits, _ = step_3_category(spans_embedding, bert_spans_tensor, final_rep)
                     pred_category_logits = torch.argmax(F.softmax(category_logits, dim=1), dim=1)
                     for j,index in enumerate(row_indices):
@@ -341,7 +349,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                             break
                         result.append([int(pred_aspect_spans[i][0][1]),int(index),int(pred_category_logits[j]),int(pred_aspect_spans[i][0][0])])
 
-                '''
+
 
                 forward_stage1_pred_aspect_result.append(pred_span_aspect_tensor)
                 forward_stage1_pred_aspect_with_sentiment.append(pred_aspect_logits)
@@ -393,7 +401,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 reverse_aspect_class_logits, reverse_aspect_attention = step_2_reverse(reverse_spans_embedding,
                                                                                 reverse_span_mask,
                                                                                 all_reverse_opinion_tensor)
-                '''
+
                 output_values, output_indices = torch.max(reverse_aspect_class_logits, dim=-1)
                 aspect_list = []
                 for row in output_indices:
@@ -413,23 +421,27 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                             break
                         aspect_rep.append(spans_embedding[int(reverse_pred_opinion_spans[i][0][0])][index.item()])
                         k += 1
-                    aspect_rep = torch.stack(aspect_rep)
+                    if has_empty_tensor(aspect_rep):
+                        print("1")
+                    if aspect_rep != []:
+                        aspect_rep = torch.stack(aspect_rep)
                     opinion_rep = all_reverse_opinion_tensor[i][0].clone()
                     opinion_repx3 = opinion_rep.expand(k, -1).to(args.device)
-                    final_rep = torch.cat((aspect_rep, opinion_repx3), dim=1)
+                    # final_rep = torch.cat((aspect_rep, opinion_repx3), dim=1)
+                    final_rep = aspect_rep + opinion_repx3
                     category_logits, _ = step_3_category(spans_embedding, bert_spans_tensor, final_rep)
                     pred_category_logits = torch.argmax(F.softmax(category_logits, dim=1), dim=1)
                     for j, index in enumerate(row_indices):
                         if index >= torch.sum(reverse_span_mask[i]).item():
                             break
                         result.append([int(index), int(reverse_pred_opinion_spans[i][0][1]), int(pred_category_logits[j]),int(reverse_pred_opinion_spans[i][0][0])])
-                '''
+
                 reverse_stage1_pred_opinion_result.append(reverse_span_opinion_tensor)
                 reverse_stage1_pred_opinion_with_sentiment.append(reverse_pred_stage1_logits)
                 reverse_stage1_pred_opinion_sentiment_logit.append(reverse_pred_sentiment_ligits)
                 reverse_stage2_pred_aspect_result.append(torch.argmax(F.softmax(reverse_aspect_class_logits, dim=2), dim=2))
                 reverse_stage2_pred_aspect_sentiment_logit.append(F.softmax(reverse_aspect_class_logits, dim=2))
-           # category_result.append(result)
+            category_result.append(result)
         gold_instances = [x for i in gold_instances for x in i]
         forward_pred_data = (forward_stage1_pred_aspect_result, forward_stage1_pred_aspect_with_sentiment,
                              forward_stage1_pred_aspect_sentiment_logit, forward_stage2_pred_opinion_result,
@@ -472,7 +484,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             pred_imp_aspect_num/ pred_imp_aspect_num_total,pred_imp_opinion_num,pred_imp_opinion_num_total,
             pred_imp_opinion_num / pred_imp_opinion_num_total,pred_imp_asp_opinion_num,pred_imp_asp_opinion_num_total,
                         pred_imp_asp_opinion_num/pred_imp_asp_opinion_num_total,pred_emp_num_total))
-
+        if pred_imp_opinion_num / pred_imp_opinion_num_total < 0.60:
+            opinion_imp_list = []
         logger.info('quad precision: {}\tquad recall: {:.8f}\tquad f1: {:.8f}'.format(quad_result[0],
                                                                                             quad_result[1],
                                                                                             quad_result[2]))
@@ -482,9 +495,13 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
     step_2_forward.train()
     step_2_reverse.train()
     step_3_category.train()
-    return quad_result
+    return quad_result,opinion_imp_list
 
-
+def has_empty_tensor(tensor_list):
+    for tensor in tensor_list:
+        if tensor.numel() == 0:
+            return True
+    return False
 def train(args):
     #print(torch.cuda.device_count())
     #print(torch.cuda.is_available())
@@ -582,6 +599,8 @@ def train(args):
         tot_kl_loss = 0
         best_aspect_f1, best_opinion_f1, best_APCE_f1, best_pairs_f1, best_quad_f1,best_quad_precision,best_quad_recall = 0,0,0,0,0,0,0
         best_quad_epoch= 0
+        opinion_all_list = []
+        num = 0
         for i in range(args.epochs):
             logger.info(('Epoch:{}'.format(i)))
 
@@ -697,7 +716,9 @@ def train(args):
             #                                                                                step2_forward_model,
             #                                                                                step2_reverse_model,
             #                                                                                devset, args)
-            quad_result = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
+            quad_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
+            if opinion_imp_list != []:
+                opinion_all_list.append(opinion_imp_list)
             print('Evaluating complete')
             # if aspect_result[2] > best_aspect_f1:
             #     best_aspect_f1 = aspect_result[2]
@@ -722,8 +743,14 @@ def train(args):
             #     best_pairs_precision = pair_result[0]
             #     best_pairs_recall = pair_result[1]
             #     best_pairs_epoch = i
-
-            if quad_result[2] > best_quad_f1 and quad_result[2] > 0.53:
+            if len(opinion_all_list) > 10:
+                common_sentences = set(opinion_all_list[0])
+                # with open("common_strings" + str(num) + ".txt", "w") as file:
+                #     for string in common_sentences:
+                #         file.write(string + "\n")
+                num += 1
+                opinion_all_list = []
+            if quad_result[2] > best_quad_f1 and quad_result[2] > 0.54:
                 model_path = args.model_dir +args.dataset +'_'+ str(quad_result[2]) + '.pt'
                 state = {
                     "bert_model": Bert.state_dict(),
@@ -733,7 +760,7 @@ def train(args):
                     "step_3_category":step_3_category.state_dict(),
                     "optimizer": optimizer.state_dict()
                 }
-                torch.save(state, model_path)
+                #torch.save(state, model_path)
                 logger.info("_________________________________________________________")
                 logger.info("best model save")
                 logger.info("_________________________________________________________")
@@ -776,7 +803,7 @@ def train(args):
     step2_forward_model.load_state_dict(state['step2_forward_model'])
     step2_reverse_model.load_state_dict(state['step2_reverse_model'])
     step_3_category.load_state_dict(state['step_3_category'])
-    hyper_result = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
+    hyper_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
     return hyper_result
 
 
@@ -816,7 +843,7 @@ def evaluate(args):
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--muti_gpu", default=True)
     parser.add_argument('--epochs', type=int, default=200, help='training epoch number')
-    parser.add_argument("--train_batch_size", default=8, type=int, help="batch size for training")
+    parser.add_argument("--train_batch_size", default=1, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2023, help="")
     '''修改了数据格式'''
     parser.add_argument("--dataset_path", default="./datasets/ASTE-Data-V2-EMNLP2020/",
@@ -867,12 +894,12 @@ def evaluate(args):
     return result[2]
 
 
-#使用TPE算法进行超参数搜索
-best = fmin(fn=evaluate, space=space, algo=tpe.suggest, max_evals=100)
-
-# 打印搜索得到的最佳超参数组合
-print("Best hyperparameters:")
-print(best)
+# #使用TPE算法进行超参数搜索
+# best = fmin(fn=evaluate, space=space, algo=tpe.suggest, max_evals=100)
+#
+# # 打印搜索得到的最佳超参数组合
+# print("Best hyperparameters:")
+# print(best)
 
 
 def load_with_single_gpu(model_path):
@@ -906,7 +933,7 @@ def main():
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--muti_gpu", default=True)
     parser.add_argument('--epochs', type=int, default=200, help='training epoch number')
-    parser.add_argument("--train_batch_size", default=8, type=int, help="batch size for training")
+    parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2023, help="")
     '''修改了数据格式'''
     parser.add_argument("--dataset_path", default="./datasets/ASTE-Data-V2-EMNLP2020/",
@@ -982,8 +1009,8 @@ if __name__ == "__main__":
         # 如果没有满足条件的显卡，等待一段时间后重新检查
         time.sleep(60)  # 每隔60秒重新检查一次
     '''
-    # try:
-    #     main()
-    #
-    # except KeyboardInterrupt:
-    #     logger.info("keyboard break")
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        logger.info("keyboard break")

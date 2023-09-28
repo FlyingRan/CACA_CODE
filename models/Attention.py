@@ -81,6 +81,7 @@ class Attention(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.self = SelfAttention(config)
+        self.gcn = GCN(config)
         self.output = SelfOutput(config)
 
     def forward(
@@ -93,10 +94,12 @@ class Attention(nn.Module):
     ):
         self_outputs = self.self(
             lstm_states,
+            hidden_states,
             attention_mask,
             encoder_hidden_states,
             encoder_attention_mask)
-        attention_output = self.output(self_outputs[0], hidden_states)
+        # gcn_outputs = self.gcn(hidden_states,attention_mask)
+        attention_output = self.output(self_outputs[0],hidden_states)
         outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
         return outputs
 
@@ -113,10 +116,10 @@ class SelfAttention(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
-
+        self.query = nn.Linear(config.hidden_size, config.hidden_size)
+        self.key = nn.Linear(config.hidden_size, config.hidden_size)
+        self.value = nn.Linear(config.hidden_size, config.hidden_size)
+        # self.gcn = GCN(config.hidden_size, 256, config.hidden_size)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
@@ -131,6 +134,7 @@ class SelfAttention(nn.Module):
     def forward(
         self,
         hidden_states,
+        input_features,
         attention_mask=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
@@ -147,23 +151,27 @@ class SelfAttention(nn.Module):
                 attention_mask = encoder_attention_mask
             key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
             value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
+            # key_layer = self.key(encoder_hidden_states)
+            # value_layer = self.value(encoder_hidden_states)
         else:
             key_layer = self.transpose_for_scores(self.key(hidden_states))
             value_layer = self.transpose_for_scores(self.value(hidden_states))
+            # key_layer = self.key(encoder_hidden_states)
+            # value_layer = self.value(encoder_hidden_states)
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
-
 
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores/math.sqrt(self.attention_head_size)
+        # attention_scores = attention_scores / math.sqrt(key_layer.numel())
         if attention_mask is not None:
-
             attention_scores = attention_scores + attention_mask
 
-        attention_probs = nn.Softmax(dim=-2)(attention_scores)
+        attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
 
+        # context_layer = self.gcn(attention_probs,input_features)
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -195,11 +203,56 @@ class Output(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, hidden_states, input_tensor):
+    def forward(self, hidden_states,input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        hidden_states = self.LayerNorm(hidden_states +input_tensor)
         return hidden_states
+
+class GraphConvLayer(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(GraphConvLayer, self).__init__()
+        self.linear = nn.Linear(in_features, out_features)
+        self.dropout = nn.Dropout(0.1)
+
+    def forward(self, adj_matrix, input_features):
+        # adj_matrix: 图的邻接矩阵，input_features: 输入特征矩阵
+        # 使用邻接矩阵来传播信息
+        output = torch.matmul(adj_matrix, input_features)
+        # output = adj_matrix*input_features
+        output = self.linear(output)
+        output = torch.relu(output)  # 在每一层添加ReLU激活函数
+        output = self.dropout(output)  # 在每一层添加Dropout
+        return output
+
+class GCN(nn.Module):
+    def __init__(self, config):
+        super(GCN, self).__init__()
+        self.input_features = config.hidden_size
+        self.hidden_features = 256
+        self.output_features = config.hidden_size
+        self.query = nn.Linear(config.hidden_size, config.hidden_size)
+        self.key = nn.Linear(config.hidden_size, config.hidden_size)
+        self.value = nn.Linear(config.hidden_size, config.hidden_size)
+        # 图卷积层1
+        self.layer1 = GraphConvLayer(self.input_features, self.hidden_features)
+        # 图卷积层2
+        self.layer2 = GraphConvLayer(self.hidden_features, self.output_features)
+
+    def forward(self,input_features,attention_mask):
+        key_layer = self.key(input_features)
+        # value_layer = self.value(input_features)
+        query_layer = self.query(input_features)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_mask = attention_mask.squeeze(1)
+        if attention_mask is not None:
+            attention_scores = attention_scores + attention_mask
+        adj_matrix = nn.Softmax(dim=-1)(attention_scores)
+        # 执行GCN的前向传播
+        h1 = self.layer1(adj_matrix, input_features)
+        h2 = self.layer2(adj_matrix, h1)
+        return h2
+
 
 class Intermediate(nn.Module):
     def __init__(self, config):
