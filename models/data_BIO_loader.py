@@ -1257,9 +1257,9 @@ class DataTterator2(object):
 
                 spans_category_label_tensor = torch.cat((spans_category_label_tensor,mask_pad),dim=1)
 
-                opinion_mask_pad = torch.full([1, num_aspect, spans_pad_length], 0, dtype=torch.long)
+                opinion_mask_pad = torch.full([1, num_aspect, spans_pad_length], 3, dtype=torch.long)
                 spans_opinion_label_tensor = torch.cat((spans_opinion_label_tensor, opinion_mask_pad), dim=-1)
-                aspect_mask_pad = torch.full([1, num_opinion, spans_pad_length], 0, dtype=torch.long)
+                aspect_mask_pad = torch.full([1, num_opinion, spans_pad_length], 3, dtype=torch.long)
                 reverse_aspect_tensor = torch.cat((reverse_aspect_tensor, aspect_mask_pad), dim=-1)
                 '''对span类似方阵mask'''
                 related_spans_pad_1 = np.zeros([num_spans, spans_pad_length])
@@ -1336,6 +1336,8 @@ class DataTterator2(object):
         bert_tokens = []
         bert_tokens.append(tokenizer.cls_token)
         for token in tokens:
+            if token == '':
+                continue
             start2idx.append(len(bert_tokens))
             test_1 = len(bert_tokens)
             sub_tokens = tokenizer.tokenize(token)
@@ -1376,6 +1378,8 @@ class DataTterator2(object):
                 spans_aspect_label.append([aspect_span[0],
                                            start2idx[aspect_span[1]],
                                            end2idx[aspect_span[2]]])
+                if start2idx[aspect_span[1]]>end2idx[aspect_span[2]]:
+                    print("error aspect")
 
         for i,opinion_span in enumerate(reverse_opinion_labels):
             if opinion_span[1] == -1 and opinion_span[2] == -2:
@@ -1384,6 +1388,8 @@ class DataTterator2(object):
                 reverse_opinion_label.append([opinion_span[0],
                                               start2idx[opinion_span[1]],
                                               end2idx[opinion_span[2]]])
+                if  start2idx[opinion_span[1]]>end2idx[opinion_span[2]]:
+                    print("error opinion")
         # spans_aspect_label = [[aspect_span[0], start2idx[aspect_span[1]], end2idx[aspect_span[2]]] for
         #                       aspect_span in spans_aspect_label]
         # reverse_opinion_label =[[opinion_span[0], start2idx[opinion_span[1]], end2idx[opinion_span[2]]] for

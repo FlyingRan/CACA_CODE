@@ -1,3 +1,4 @@
+import math
 import os
 import argparse
 import tqdm
@@ -19,7 +20,7 @@ import numpy as np
 import hyperopt
 from hyperopt import fmin, tpe, hp
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -227,7 +228,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             '''真实结果合成'''
             gold_instances.append(dataset.instances[j])
             result = []
-            '''
+
             if torch.nonzero(pred_aspect_logits, as_tuple=False).shape[0] !=0\
                     and torch.nonzero(reverse_pred_stage1_logits, as_tuple=False).shape[0] != 0:
                 opinion_span = torch.chunk(torch.nonzero(reverse_pred_stage1_logits, as_tuple=False),
@@ -273,7 +274,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                     category_result.append(result)
             else:
                 category_result.append([])
-            '''
+
             if torch.nonzero(pred_aspect_logits, as_tuple=False).shape[0] == 0:
 
                 forward_stage1_pred_aspect_result.append(torch.full_like(spans_aspect_tensor, -1))
@@ -313,7 +314,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 #step1. 找到所有的opinion_index及其表征
                 #step2. 遍历aspect个数，逐个拼接opinion表征，最后输入到step3_category中
                 #step3. 添加到result
-
+                '''
                 output_values, output_indices = torch.max(opinion_class_logits, dim=-1)
                 opinion_list = []
                 batch_list = []
@@ -332,10 +333,13 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                         # print(spans_embedding[0][index.item()])
                         if index >= torch.sum(all_span_mask[i]).item():
                             break
+
                         opinion_rep.append(spans_embedding[int(pred_aspect_spans[i][0][0])][index.item()])
+                        if math.isinf(spans_embedding[int(pred_aspect_spans[i][0][0])][index.item()][0]):
+                            print("inf error")
                         k += 1
                     if has_empty_tensor(opinion_rep):
-                        print("1")
+                        print("empty error")
                     if opinion_rep != []:
                         opinion_rep = torch.stack(opinion_rep)
                     aspect_rep = all_span_aspect_tensor[i][0].clone()
@@ -348,7 +352,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                         if index >= torch.sum(all_span_mask[i]).item():
                             break
                         result.append([int(pred_aspect_spans[i][0][1]),int(index),int(pred_category_logits[j]),int(pred_aspect_spans[i][0][0])])
-
+                '''
 
 
                 forward_stage1_pred_aspect_result.append(pred_span_aspect_tensor)
@@ -401,7 +405,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 reverse_aspect_class_logits, reverse_aspect_attention = step_2_reverse(reverse_spans_embedding,
                                                                                 reverse_span_mask,
                                                                                 all_reverse_opinion_tensor)
-
+                '''
                 output_values, output_indices = torch.max(reverse_aspect_class_logits, dim=-1)
                 aspect_list = []
                 for row in output_indices:
@@ -420,6 +424,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                         if index >= torch.sum(reverse_span_mask[i]).item():
                             break
                         aspect_rep.append(spans_embedding[int(reverse_pred_opinion_spans[i][0][0])][index.item()])
+                        if math.isinf(spans_embedding[int(reverse_pred_opinion_spans[i][0][0])][index.item()][0]):
+                            print("inf error")
                         k += 1
                     if has_empty_tensor(aspect_rep):
                         print("1")
@@ -435,13 +441,13 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                         if index >= torch.sum(reverse_span_mask[i]).item():
                             break
                         result.append([int(index), int(reverse_pred_opinion_spans[i][0][1]), int(pred_category_logits[j]),int(reverse_pred_opinion_spans[i][0][0])])
-
+                '''
                 reverse_stage1_pred_opinion_result.append(reverse_span_opinion_tensor)
                 reverse_stage1_pred_opinion_with_sentiment.append(reverse_pred_stage1_logits)
                 reverse_stage1_pred_opinion_sentiment_logit.append(reverse_pred_sentiment_ligits)
                 reverse_stage2_pred_aspect_result.append(torch.argmax(F.softmax(reverse_aspect_class_logits, dim=2), dim=2))
                 reverse_stage2_pred_aspect_sentiment_logit.append(F.softmax(reverse_aspect_class_logits, dim=2))
-            category_result.append(result)
+          #  category_result.append(result)
         gold_instances = [x for i in gold_instances for x in i]
         forward_pred_data = (forward_stage1_pred_aspect_result, forward_stage1_pred_aspect_with_sentiment,
                              forward_stage1_pred_aspect_sentiment_logit, forward_stage2_pred_opinion_result,
@@ -575,7 +581,7 @@ def train(args):
         print('-------------------------------')
         logger.info('开始加载训练与验证集')
         print('开始加载训练与验证集')
-        train_datasets = load_data1(args, train_path, if_train=True)
+        train_datasets = load_data1(args, train_path, if_train=False)
         trainset = DataTterator2(train_datasets, args)
         print("Train features build completed")
 
@@ -711,7 +717,7 @@ def train(args):
             tot_kl_loss = 0
             if i==10:
                 print()
-            print('Evaluating, please wait')
+            # print('Evaluating, please wait')
             # aspect_result, opinion_result, apce_result, pair_result, triplet_result = eval(Bert, step_1_model,
             #                                                                                step2_forward_model,
             #                                                                                step2_reverse_model,
@@ -719,7 +725,7 @@ def train(args):
             quad_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
             if opinion_imp_list != []:
                 opinion_all_list.append(opinion_imp_list)
-            print('Evaluating complete')
+            # print('Evaluating complete')
             # if aspect_result[2] > best_aspect_f1:
             #     best_aspect_f1 = aspect_result[2]
             #     best_aspect_precision = aspect_result[0]
@@ -835,10 +841,10 @@ def evaluate(args):
                         help="Set this flag if you are using an uncased model.")
     parser.add_argument("--max_seq_length", default=120, type=int,
                         help="The maximum total input sequence length after WordPiece tokenization. Sequences longer than this will be truncated, and sequences shorter than this will be padded.")
-    parser.add_argument("--drop_out", type=int, default=0.1, help="")
+    parser.add_argument("--drop_out", type=int, default=0.001, help="")
     parser.add_argument("--max_span_length", type=int, default=12, help="")
     parser.add_argument("--embedding_dim4width", type=int, default=200, help="")
-    parser.add_argument("--task_learning_rate", type=float, default=1e-5)
+    parser.add_argument("--task_learning_rate", type=float, default=0.006)
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--muti_gpu", default=True)
@@ -864,7 +870,7 @@ def evaluate(args):
 
     # 是否对相关span添加分离Loss
     parser.add_argument("--kl_loss", default=True)
-    parser.add_argument("--kl_loss_weight", type=int, default=0.5, help="weight of the kl_loss")
+    parser.add_argument("--kl_loss_weight", type=int, default=1, help="weight of the kl_loss")
     parser.add_argument('--kl_loss_mode', type=str, default="KLLoss", choices=["KLLoss", "JSLoss", "EMLoss, CSLoss"],
                         help='选择分离相似Span的分离函数, KL散度、JS散度、欧氏距离以及余弦相似度')
     # 是否使用测试中的筛选算法
@@ -925,15 +931,15 @@ def main():
     parser.add_argument("--bert_feature_dim", default=768, type=int, help="feature dim for bert")
     parser.add_argument("--do_lower_case", default=True, action='store_true',help="Set this flag if you are using an uncased model.")
     parser.add_argument("--max_seq_length", default=120, type=int,help="The maximum total input sequence length after WordPiece tokenization. Sequences longer than this will be truncated, and sequences shorter than this will be padded.")
-    parser.add_argument("--drop_out", type=int, default=0.1, help="")
+    parser.add_argument("--drop_out", type=int, default=0.008, help="")
     parser.add_argument("--max_span_length", type=int, default=12, help="")
     parser.add_argument("--embedding_dim4width", type=int, default=200,help="")
-    parser.add_argument("--task_learning_rate", type=float, default=1e-5)
+    parser.add_argument("--task_learning_rate", type=float, default=1e-3)
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--muti_gpu", default=True)
     parser.add_argument('--epochs', type=int, default=200, help='training epoch number')
-    parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
+    parser.add_argument("--train_batch_size", default=2, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2023, help="")
     '''修改了数据格式'''
     parser.add_argument("--dataset_path", default="./datasets/ASTE-Data-V2-EMNLP2020/",
@@ -952,7 +958,7 @@ def main():
 
     # 是否对相关span添加分离Loss
     parser.add_argument("--kl_loss", default=True)
-    parser.add_argument("--kl_loss_weight", type=int, default=0.5, help="weight of the kl_loss")
+    parser.add_argument("--kl_loss_weight", type=int, default=1, help="weight of the kl_loss")
     parser.add_argument('--kl_loss_mode', type=str, default="KLLoss", choices=["KLLoss", "JSLoss", "EMLoss, CSLoss"],
                         help='选择分离相似Span的分离函数, KL散度、JS散度、欧氏距离以及余弦相似度')
     # 是否使用测试中的筛选算法
