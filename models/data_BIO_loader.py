@@ -33,8 +33,8 @@ categories = ['MULTIMEDIA_DEVICES#PRICE', 'OS#QUALITY', 'SHIPPING#QUALITY', 'GRA
             'CPU#DESIGN_FEATURES', 'PORTS#OPERATION_PERFORMANCE', 'SOFTWARE#OPERATION_PERFORMANCE', 'KEYBOARD#GENERAL', 'SOFTWARE#QUALITY',
             'LAPTOP#CONNECTIVITY', 'POWER_SUPPLY#DESIGN_FEATURES', 'HARDWARE#OPERATION_PERFORMANCE', 'WARRANTY#QUALITY', 'HARD_DISC#QUALITY',
             'POWER_SUPPLY#OPERATION_PERFORMANCE', 'PORTS#DESIGN_FEATURES', 'Out_Of_Scope#USABILITY']
-'''
 
+'''
 categories =['RESTAURANT#GENERAL', 'SERVICE#GENERAL', 'FOOD#GENERAL', 'FOOD#QUALITY', 'FOOD#STYLE_OPTIONS', 'DRINKS#STYLE_OPTIONS', 'DRINKS#PRICES',
             'AMBIENCE#GENERAL', 'RESTAURANT#PRICES', 'FOOD#PRICES', 'RESTAURANT#MISCELLANEOUS', 'DRINKS#QUALITY', 'LOCATION#GENERAL']
 
@@ -404,33 +404,35 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         spans_aspect2category_label = []
         differ_opinion_sentiment = False
         sample['ao_pair'] = []
-
+        sample['imp_asp'] = []
+        sample['imp_opi'] = []
+        sample['asp_sen'] = []
+        sample['opi_sen'] = []
         for quad_name in sample['quad']:
             aspect_span, opinion_span, categorystr,sentiment = tuple(sample['quad'][quad_name][0]), tuple(
                 sample['quad'][quad_name][1]), sample['quad'][quad_name][2],sample['quad'][quad_name][3]
             spans_aspect2category_label.append(category2id[categorystr])
             if aspect_span == (-1,-2):
                 tem_a = [0,0,0]
+                # sample['imp_asp'].append(1)
             else:
                 tem_a = [aspect_span[0],aspect_span[1],aspect_span[1]+1-aspect_span[0]]
+                # sample['imp_asp'].append(0)
 
             if opinion_span == (-1,-2):
                 tem_o = [0,0,0]
+                # sample['imp_opi'].append(1)
             else:
                 tem_o = [opinion_span[0],opinion_span[1],opinion_span[1]+1-opinion_span[0]]
-
+                # sample['imp_opi'].append(0)
             sample['ao_pair'].append([tem_a,tem_o])
+
+
             num_quad += 1
             if aspect_span not in aspect:
                 aspect[aspect_span] = sentiment
-                # category[aspect_span] = categorystr
                 opinion[aspect_span] = [(opinion_span, sentiment)]
-                # category[aspect_span].append([categorystr])
             else:
-                # assert aspect[aspect_span] == sentiment
-                # if aspect[aspect_span] != sentiment:
-                #     differ_opinion_sentiment = True
-                #     print(sample+'\n'+aspect[aspect_span]+sentiment)
                 opinion[aspect_span].append((opinion_span, sentiment))
 
             if opinion_span not in opinion_reverse:
@@ -443,16 +445,53 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
                 # else:
                 #     if opinion_span == (-1,-2) and aspect_span == (-1,-2):
                 #         print("存在双重隐性观点词和方面词："+sample['sentence'])
-                    aspect_reverse[opinion_span].append((aspect_span, sentiment))
+                aspect_reverse[opinion_span].append((aspect_span, sentiment))
                     # category[opinion_span].append(categorystr)
         # if differ_opinion_sentiment:
         #     differ_opinion_senitment_num += 1
         #     # print(ex_index, '单意见词多极性')
         #     continue
+        temp_flag = 0
+        aspect_polarity_label = []
+        opinion_polarity_label = []
+        for asp_span,opi_sen_list in opinion.items():
+            for opi_sen in opi_sen_list:
+                if opi_sen[0] == (-1,-2) and temp_flag!=1:
+                    sample['imp_asp'].append(1)
+                    aspect_polarity_label.append(sentiment2id[opi_sen[1]])
+                    temp_flag = 1
+                    break;
+            if temp_flag == 0:
+                sample['imp_asp'].append(0)
+                aspect_polarity_label.append(sentiment2id[opi_sen[1]])
+            temp_flag = 0
+        assert len(opinion) == len(sample['imp_asp'])
 
+        temp_flag = 0
+        for opi_span, asp_sen_list in aspect_reverse.items():
+            for asp_sen in asp_sen_list:
+                if asp_sen[0] == (-1, -2) and temp_flag != 1:
+                    sample['imp_opi'].append(1)
+                    opinion_polarity_label.append(sentiment2id[asp_sen[1]])
+                    temp_flag = 1
+                    break;
+            if temp_flag == 0:
+                sample['imp_opi'].append(0)
+                opinion_polarity_label.append(sentiment2id[asp_sen[1]])
+            temp_flag = 0
+            #aspect_polarity_label.append(sentiment2id[asp_sentiment])
+
+
+        '''
+        for opi_span,opi_sentiment in opinion_reverse.items():
+            if opi_span == (-1,-2):
+                sample['imp_opi'].append(1)
+            else:
+                sample['imp_opi'].append(0)
+            opinion_polarity_label.append(sentiment2id[opi_sentiment])
         num_aspect += len(aspect)
         num_opinion += len(opinion)
-
+        '''
         # if len(aspect) != example.aspect_num:
         #     print('有不同三元组使用重复了aspect:', example.id)
 
@@ -467,9 +506,13 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         reverse_opinion_label = [0]
         reverse_opinion2aspect_label = []
         reverse_aspect_label = []
+
+
         # 解决隐式aspect及其对应的category label问题
+
         if (-1,-2) in aspect:
             spans_aspect_label.append(1)
+            # aspect_polarity_label.append(sentiment2id[aspect[(-1,-2)]])
             # spans_aspect2category_label.append(category2id[category[(-1,-2)]])
         else:
             spans_aspect_label.append(0)
@@ -490,13 +533,13 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
                         # 当前span没有情感
                         spans_aspect_label.append(0)
                     else:
-                        # spans_aspect_label.append(sentiment2id[aspect[(j, i + j)]])
+                        # aspect_polarity_label.append(sentiment2id[aspect[(j, i + j)]])
                         spans_aspect_label.append(validity2id[aspect[(j, i + j)]])
                     if (j, i + j) not in opinion_reverse:
                         # 当前opinion没有情感
                         reverse_opinion_label.append(0)
                     else:
-                        # reverse_opinion_label.append(sentiment2id[opinion_reverse[(j, i + j)]])
+                        # opinion_polarity_label.append(sentiment2id[opinion_reverse[(j, i + j)]])
                         # 对应到标签 添加情感
                         reverse_opinion_label.append(validity2id[opinion_reverse[(j, i + j)]])
                     # if (j , i + j) not in category:
@@ -526,6 +569,7 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         spans_aspect_label.append(0)
         if (-1,-2) in opinion_reverse:
             reverse_opinion_label.append(1)
+            # opinion_polarity_label.append(sentiment2id[opinion_reverse[(-1, -2)]])
         else:
             reverse_opinion_label.append(0)
 
@@ -582,7 +626,8 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         sample['reverse_opinion_num'] = len(reverse_aspect_label)
         sample['reverse_opinion2aspect_label'] = reverse_opinion2aspect_label
         sample['spans_aspect2category_label'] = spans_aspect2category_label
-
+        sample['aspect_polarity_label'] = aspect_polarity_label
+        sample['opinion_polarity_label'] = opinion_polarity_label
         related_spans = np.zeros((len(spans)+2, len(spans)+2), dtype=int)
         for i in range(len(span_tokens)):
             span_token = span_tokens[i].split(' ')
@@ -1155,6 +1200,10 @@ class DataTterator2(object):
         sentence_length = []
         related_spans_list = []
 
+        imp_asp_label_list = []
+        imp_opi_label_list = []
+        aspect_polarity_label_list = []
+        opinion_polarity_label_list = []
         max_tokens = self.args.max_seq_length
         max_spans = 0
         for i, sample in enumerate(self.instances[batch_num]):
@@ -1175,6 +1224,13 @@ class DataTterator2(object):
             # spans_aspect_labels:[(batch_num,opinion_span1,opinion_span2)]
             ao_pair = sample['ao_pair']
             quad = sample['quad']
+
+            imp_asp_label = sample['imp_asp']
+            imp_opi_label = sample['imp_opi']
+
+            aspect_polarity_label = sample['aspect_polarity_label']
+            opinion_polarity_label = sample['opinion_polarity_label']
+
             spans_aspect_labels, reverse_opinion_labels = [], []
             for spans_aspect2opinion_label in spans_aspect2opinion_labels:
                 spans_aspect_labels.append((i, spans_aspect2opinion_label[0], spans_aspect2opinion_label[1]))
@@ -1187,10 +1243,12 @@ class DataTterator2(object):
             # for j in range(len(spans_aspect2opinion_labels)):
             #     ao_pair.append((i,spans_aspect2opinion_labels[j],reverse_opinion2aspect_labels[j]))
             bert_tokens, tokens_tensor, bert_spans_tensor, spans_ner_label_tensor, spans_aspect_labels_tensor, spans_opinion_tensor, \
-                reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor,spans_category_label_tensor,ao_pair= \
+                reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor,spans_category_label_tensor,ao_pair, \
+                imp_asp_label_tensor, imp_opi_label_tensor, aspect_polarity_label_tensor, opinion_polarity_label_tensor= \
                 self.get_input_tensors(self.tokenizer, tokens, spans, spans_ner_label, spans_aspect_labels,
                                        spans_opinion_label, reverse_ner_label, reverse_opinion_labels,
-                                       reverse_aspect_label,spans_category_label,ao_pair)
+                                       reverse_aspect_label,spans_category_label,ao_pair,imp_asp_label,imp_opi_label,
+                                       aspect_polarity_label,opinion_polarity_label)
             tokens_tensor_list.append(tokens_tensor)
             bert_spans_tensor_list.append(bert_spans_tensor)
             spans_ner_label_tensor_list.append(spans_ner_label_tensor)
@@ -1200,6 +1258,11 @@ class DataTterator2(object):
             reverse_opinion_tensor_list.append(reverse_opinion_tensor)
             reverse_aspect_tensor_list.append(reverse_aspect_tensor)
             spans_category_label_list.append(spans_category_label_tensor)
+
+            imp_asp_label_list.append(imp_asp_label_tensor)
+            imp_opi_label_list.append(imp_opi_label_tensor)
+            aspect_polarity_label_list.append(aspect_polarity_label_tensor)
+            opinion_polarity_label_list.append(opinion_polarity_label_tensor)
             # assert bert_spans_tensor.shape[1] == spans_ner_label_tensor.shape[1] == reverse_ner_label_tensor.shape[1]
             # tokens和spans的最大个数被设定为固定值
             # if (tokens_tensor.shape[1] > max_tokens):
@@ -1225,11 +1288,20 @@ class DataTterator2(object):
         final_reverse_opinion_tensor = None
         final_reverse_aspect_label_tensor = None
         final_related_spans_tensor = None
+
+        final_imp_asp_label_tensor = None
+        final_imp_opi_label_tensor = None
+        final_aspect_polarity_label_tensor = None
+        final_opinion_polarity_label_tensor = None
+
+
         for tokens_tensor, bert_spans_tensor, spans_ner_label_tensor, spans_aspect_tensor, spans_opinion_label_tensor, \
-            reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor, related_spans,spans_category_label_tensor \
+            reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor, related_spans,spans_category_label_tensor, \
+            imp_asp_label_tensor, imp_opi_label_tensor, aspect_polarity_label_tensor, opinion_polarity_label_tensor \
                 in zip(tokens_tensor_list, bert_spans_tensor_list, spans_ner_label_tensor_list, spans_aspect_tensor_list,
                        spans_opinion_label_tensor_list, reverse_ner_label_tensor_list, reverse_opinion_tensor_list,
-                       reverse_aspect_tensor_list, related_spans_list,spans_category_label_list):
+                       reverse_aspect_tensor_list, related_spans_list,spans_category_label_list,
+                       imp_asp_label_list,imp_opi_label_list,aspect_polarity_label_list,opinion_polarity_label_list):
             # padding for tokens
             num_tokens = tokens_tensor.shape[1]
             tokens_pad_length = max_tokens - num_tokens
@@ -1284,6 +1356,12 @@ class DataTterator2(object):
                 final_reverse_opinion_tensor = reverse_opinion_tensor.squeeze(0)
                 final_reverse_aspect_label_tensor = reverse_aspect_tensor.squeeze(0)
                 final_related_spans_tensor = related_spans_tensor.unsqueeze(0)
+
+                final_imp_asp_label_tensor = imp_asp_label_tensor.squeeze(0)
+                final_imp_opi_label_tensor = imp_opi_label_tensor.squeeze(0)
+                final_aspect_polarity_label_tensor = aspect_polarity_label_tensor.squeeze(0)
+                final_opinion_polarity_label_tensor = opinion_polarity_label_tensor.squeeze(0)
+
             else:
                 final_tokens_tensor = torch.cat((final_tokens_tensor, tokens_tensor), dim=0)
                 final_attention_mask = torch.cat((final_attention_mask, attention_tensor), dim=0)
@@ -1308,6 +1386,11 @@ class DataTterator2(object):
                 final_related_spans_tensor = torch.cat(
                     (final_related_spans_tensor, related_spans_tensor.unsqueeze(0)), dim=0)
 
+                final_imp_asp_label_tensor = torch.cat((final_imp_asp_label_tensor,imp_asp_label_tensor.squeeze(0)),dim=0)
+                final_imp_opi_label_tensor = torch.cat((final_imp_opi_label_tensor,imp_opi_label_tensor.squeeze(0)),dim=0)
+                final_aspect_polarity_label_tensor = torch.cat((final_aspect_polarity_label_tensor,aspect_polarity_label_tensor.squeeze(0)),dim=0)
+                final_opinion_polarity_label_tensor = torch.cat((final_opinion_polarity_label_tensor,opinion_polarity_label_tensor.squeeze(0)),dim=0)
+
         # 注意，特征中最大span间隔不一定为设置的max_span_length，这是因为bert分词之后造成的span扩大了。
         final_tokens_tensor = final_tokens_tensor.to(self.args.device)
         final_attention_mask = final_attention_mask.to(self.args.device)
@@ -1323,14 +1406,23 @@ class DataTterator2(object):
         final_reverse_opinion_tensor = final_reverse_opinion_tensor.to(self.args.device)
         final_reverse_aspect_label_tensor = final_reverse_aspect_label_tensor.to(self.args.device)
         final_related_spans_tensor = final_related_spans_tensor.to(self.args.device)
+
+        final_imp_asp_label_tensor = final_imp_asp_label_tensor.to(self.args.device)
+        final_imp_opi_label_tensor = final_imp_opi_label_tensor.to(self.args.device)
+        final_aspect_polarity_label_tensor = final_aspect_polarity_label_tensor.to(self.args.device)
+        final_opinion_polarity_label_tensor = final_opinion_polarity_label_tensor.to(self.args.device)
+
+
         return final_tokens_tensor, final_attention_mask, final_bert_spans_tensor, final_spans_mask_tensor, \
                final_spans_ner_label_tensor, final_spans_aspect_tensor, final_spans_opinion_label_tensor, \
                final_reverse_ner_label_tensor, final_reverse_opinion_tensor, final_reverse_aspect_label_tensor, \
-               final_related_spans_tensor, sentence_length
+               final_related_spans_tensor, sentence_length,final_imp_asp_label_tensor,final_imp_opi_label_tensor, \
+               final_aspect_polarity_label_tensor,final_opinion_polarity_label_tensor
 
 
     def get_input_tensors(self, tokenizer, tokens, spans, spans_ner_label, spans_aspect_labels, spans_opinion_label,
-                          reverse_ner_label, reverse_opinion_labels, reverse_aspect_label,spans_category_label,ao_pair):
+                          reverse_ner_label, reverse_opinion_labels, reverse_aspect_label,spans_category_label,ao_pair,
+                          imp_asp_label, imp_opi_label,aspect_polarity_label, opinion_polarity_label):
         start2idx = []
         end2idx = []
         bert_tokens = []
@@ -1402,8 +1494,13 @@ class DataTterator2(object):
         reverse_ner_label_tensor = torch.tensor([reverse_ner_label])
         reverse_opinion_tensor = torch.tensor([reverse_opinion_label])
         reverse_aspect_tensor = torch.tensor([reverse_aspect_label])
-
         spans_category_label_tensor = torch.tensor([spans_category_label])
 
+        imp_asp_label_tensor = torch.tensor([imp_asp_label])
+        imp_opi_label_tensor = torch.tensor([imp_opi_label])
+        aspect_polarity_label_tensor = torch.tensor([aspect_polarity_label])
+        opinion_polarity_label_tensor = torch.tensor([opinion_polarity_label])
+
         return bert_tokens,tokens_tensor, bert_spans_tensor, spans_ner_label_tensor, spans_aspect_tensor, spans_opinion_tensor, \
-               reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor,spans_category_label_tensor,final_ao_pair
+               reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor,spans_category_label_tensor,final_ao_pair, \
+               imp_asp_label_tensor,imp_opi_label_tensor,aspect_polarity_label_tensor,opinion_polarity_label_tensor

@@ -22,7 +22,7 @@ class Metric():
         self.pred_opinion = forward_pred_result[3]
         self.pred_opinion_sentiment_logit = forward_pred_result[4]
 
-        self.pred_aspect_category = forward_pred_result[5]
+        self.pred_aspect_category = forward_pred_result[6]
         '''反向评价'''
         self.reverse_pred_opinon = reverse_pred_result[0]
         self.reverse_pred_opinon_sentiment = reverse_pred_result[1]
@@ -31,7 +31,8 @@ class Metric():
         self.reverse_pred_aspect = reverse_pred_result[3]
         self.reverse_pred_aspect_sentiment_logit = reverse_pred_result[4]
 
-
+        self.imp_opi_asp = reverse_pred_result[5]
+        self.imp_asp_opi = forward_pred_result[5]
     def P_R_F1(self, gold_num, pred_num, correct_num):
         precision = correct_num / pred_num if pred_num > 0 else 0
         recall = correct_num / gold_num if gold_num > 0 else 0
@@ -218,6 +219,17 @@ class Metric():
                         if triple[0] == aspect and triple[1] == opinion:
                             quad_list.append((aspect, opinion, id2category[a_o_c[2]], triple[2]))
                             break
+            # quad_list = list(set(quad_list) | set(pred_quad))
+            '''
+            flag = 0
+            for imp_quad in pred_quad:
+                for quad in quad_list:
+                    if quad[0]==imp_quad[0] and quad[1] == imp_quad[1]:
+                        flag = 1
+                if flag == 0:
+                    quad_list.append(imp_quad)
+                flag = 0
+            '''
             gold_num, pred_num, correct_num = self.num_4_eval(gold_quad, quad_list, gold_num,
                                                               pred_num, correct_num)
 
@@ -657,9 +669,12 @@ class Metric():
         triples_list, pair_list, span_list = [], [], []
         aspect_list, pred_opinion_list, apce_list = [], [], []
         category_list = []
-        quad_list=[]
+        quad_list = []
         pred_aspect_span = self.pred_aspect[sentence_index]
-        pred_category_span = self.pred_aspect_category[sentence_index]
+        asp_opi_imp = self.imp_asp_opi[sentence_index]
+        opi_asp_imp = self.imp_opi_asp[sentence_index]
+
+        # pred_category_span = self.pred_aspect_category[sentence_index]
         # 去除重复的aspect
         new_aspect_span = []
         for i, pred_aspect in enumerate(pred_aspect_span):
@@ -718,6 +733,7 @@ class Metric():
                                                                                          self.pred_opinion_sentiment_logit,
                                                                                          False
                                                                                          )
+
                 # 筛选情感  弃用
                 # if opinion_sentiment_logit > aspect_sentiment_logit:
                 #     sentiment = opinion_sentiment
@@ -730,6 +746,27 @@ class Metric():
                 pair_list.append((aspect, opinion))
                 span_list.append((aspect_span_output, opinion_span_output, opinion_sentiment_logit))
                 # quad_list.append((aspect,opinion,category,opinion_sentiment))
+
+        quad_list1 = []
+        quad_list2 = []
+        for m,imp_asp_quad in enumerate(asp_opi_imp):
+            aspect_span = [0,imp_asp_quad[1][0].int(),imp_asp_quad[1][0].int()]
+            opinion_span = [0,imp_asp_quad[2][0].int(),imp_asp_quad[2][1].int()]
+            aspect = self.find_token(bert_tokens,aspect_span)
+            opinion = self.find_token(bert_tokens,opinion_span)
+            category = id2category[imp_asp_quad[3]]
+            sentiment = id4sentiment[imp_asp_quad[4]]
+            quad_list1.append((aspect,opinion,category,sentiment))
+
+        for m,imp_opi_quad in enumerate(opi_asp_imp):
+            aspect_span = [0,imp_opi_quad[1][0].int(),imp_opi_quad[1][0].int()]
+            opinion_span = [0,imp_opi_quad[2][0].int(),imp_opi_quad[2][1].int()]
+            aspect = self.find_token(bert_tokens,aspect_span)
+            opinion = self.find_token(bert_tokens,opinion_span)
+            category = id2category[imp_opi_quad[3]]
+            sentiment = id4sentiment[imp_opi_quad[4]]
+            quad_list2.append((aspect,opinion,category,sentiment))
+        quad_list = list(set(quad_list1) | set(quad_list2))
         '''
         if len(pred_category_span)>0:
             for i,a_o_c in enumerate(pred_category_span):
