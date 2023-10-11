@@ -502,9 +502,9 @@ class Step_2_forward(torch.nn.Module):
 
         return opinion_class_logits,aspect_imp_logits,aspect_imp_polarity_logits
 
-class AspectRepresentationModel(nn.Module):
+class Step_3_categories1(nn.Module):
     def __init__(self, num_classes, embedding_dim):
-        super(AspectRepresentationModel, self).__init__()
+        super(Step_3_categories1, self).__init__()
         self.embedding_dim = embedding_dim
         self.class_embeddings = nn.Embedding(num_classes, embedding_dim)
 
@@ -521,6 +521,7 @@ class Step_3_categories(torch.nn.Module):
             nn.Dropout(args.drop_out),
             nn.Linear(args.bert_feature_dim, len(categories))
         )
+
     def forward(self,spans_embedding,bert_spans_tensor,pairs,category_labels=None):
         if category_labels == None:
             category_logits = self.category_classifier(pairs)
@@ -635,8 +636,8 @@ class WeightedBinaryCrossEntropyLoss(nn.Module):
 
 def Loss(gold_aspect_label, pred_aspect_label, gold_opinion_label, pred_opinion_label, spans_mask_tensor, opinion_span_mask_tensor,
          reverse_gold_opinion_label, reverse_pred_opinion_label, reverse_gold_aspect_label, reverse_pred_aspect_label,
-         cnn_spans_mask_tensor, reverse_aspect_span_mask_tensor, spans_embedding, related_spans_tensor,gold_category_label,
-         pred_category_label, exist_aspect,exist_opinion,imp_aspect_exist,imp_opinion_exist,sentence_length,
+         cnn_spans_mask_tensor, reverse_aspect_span_mask_tensor, spans_embedding, related_spans_tensor,
+         exist_aspect,exist_opinion,imp_aspect_exist,imp_opinion_exist,sentence_length,
          aspect_imp_logits, imp_asp_label_tensor,aspect_imp_polarity_logits, aspect_polarity_label_tensor,
          opinion_imp_logits, imp_opi_label_tensor,
          opinion_imp_polarity_logits, opinion_polarity_label_tensor,
@@ -659,7 +660,7 @@ def Loss(gold_aspect_label, pred_aspect_label, gold_opinion_label, pred_opinion_
     #                                           torch.tensor(loss_function.ignore_index).type_as(gold_category_label))
     # category_loss = 0
     # if pred_category_label != [] and gold_category_label != []:
-    category_loss = loss_function(pred_category_label,gold_category_label)
+    # category_loss = loss_function(pred_category_label,gold_category_label)
 
     # pred_category_label_logits = pred_category_label.view(-1, pred_category_label.shape[-1])
     # gold_category_effective_label = torch.where(aspect_spans_mask_tensor, gold_category_label.view(-1),
@@ -672,7 +673,7 @@ def Loss(gold_aspect_label, pred_aspect_label, gold_opinion_label, pred_opinion_
     gold_opinion_effective_label = torch.where(opinion_span_mask_tensor, gold_opinion_label.view(-1),
                                                torch.tensor(loss_function.ignore_index).type_as(gold_opinion_label))
     opinion_loss = loss_function(pred_opinion_label_logits, gold_opinion_effective_label)
-    as_2_op_loss = aspect_loss + opinion_loss + category_loss
+    as_2_op_loss = aspect_loss + opinion_loss
 
     # Loss反向
     reverse_opinion_span_mask_tensor = spans_mask_tensor.view(-1) == 1

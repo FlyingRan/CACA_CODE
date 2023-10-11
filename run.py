@@ -3,10 +3,11 @@ import os
 import argparse
 import tqdm
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AdamW, BertModel, get_linear_schedule_with_warmup
 from models.data_BIO_loader import load_data, load_data1,DataTterator,DataTterator2
-from models.model import stage_2_features_generation, Step_1, Step_2_forward, Step_2_reverse, Loss,Step_3_categories
+from models.model import stage_2_features_generation, Step_1, Step_2_forward, Step_2_reverse, Loss,Step_3_categories,Step_3_categories1
 from models.Metric import Metric
 from models.eval_features import unbatch_data
 from log import logger
@@ -20,7 +21,7 @@ import numpy as np
 import hyperopt
 from hyperopt import fmin, tpe, hp
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -68,13 +69,14 @@ def cartesian_product(tensor_list1, tensor_list2):
                 result.append(concatenated_tensor)
 
     return result
-def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_category, dataset, args):
+def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_category,step_3_category1, dataset, args):
     with torch.no_grad():
         bert_model.eval()
         step_1_model.eval()
         step_2_forward.eval()
         step_2_reverse.eval()
         step_3_category.eval()
+        step_3_category1.eval()
         '''真实结果'''
         gold_instances = []
         '''前向预测结果'''
@@ -270,11 +272,17 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                     # cartesian_product1 = torch.cat((expanded_aspect, expanded_opinion), dim=2)
                     # # 转换形状
                     # input_rep  = cartesian_product1.reshape(aspect_rep.size(0) * opinion_rep.size(0), 768 * 2)
-                    category_logits,_ = step_3_category(spans_embedding,bert_spans_tensor,input_rep)
-                    pred_category_logits = torch.argmax(F.softmax(category_logits, dim=1), dim=1)
+                    # category_logits,_ = step_3_category(spans_embedding,bert_spans_tensor,input_rep)
+                    # pred_category_logits = torch.argmax(F.softmax(category_logits, dim=1), dim=1)
+                    category_rep = step_3_category1(torch.arange(121))
+
+                    similarities = F.cosine_similarity(input_rep.unsqueeze(1), category_rep.unsqueeze(0), dim=-1)
+                    category_id = torch.argmax(similarities,dim=-1)
+                    # for rep in enumerate(input_rep):
+
                     result = []
                     for i,pair in enumerate(pred_pair):
-                        a_o_c_result = [int(pair[0]),int(pair[1]),int(pred_category_logits[i]),int(pair[2])]
+                        a_o_c_result = [int(pair[0]),int(pair[1]),int(category_id[i]),int(pair[2])]
                         result.append(a_o_c_result)
                     category_result.append(result)
             else:
@@ -539,6 +547,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
     step_2_forward.train()
     step_2_reverse.train()
     step_3_category.train()
+    step_3_category1.train()
     return quad_result,opinion_imp_list
 
 def has_empty_tensor(tensor_list):
@@ -546,6 +555,9 @@ def has_empty_tensor(tensor_list):
         if tensor.numel() == 0:
             return True
     return False
+
+
+
 def train(args):
     #print(torch.cuda.device_count())
     #print(torch.cuda.is_available())
@@ -599,22 +611,27 @@ def train(args):
     step2_reverse_model.to(args.device)
     reverse_step2_param_optimizer = list(step2_reverse_model.named_parameters())
 
+    step_3_category1 = Step_3_categories1(121,args.bert_feature_dim)
+    step_3_category1.to(args.device)
+    step_3_category_optimizer1 = list(step_3_category1.named_parameters())
+
     training_param_optimizer = [
         {'params': [p for n, p in bert_param_optimizer]},
         {'params': [p for n, p in step_1_param_optimizer], 'lr': args.task_learning_rate},
         {'params': [p for n, p in forward_step2_param_optimizer], 'lr': args.task_learning_rate},
         {'params': [p for n, p in reverse_step2_param_optimizer], 'lr': args.task_learning_rate},
-        {'params': [p for n, p in step_3_category_optimizer], 'lr': args.task_learning_rate}
+        {'params': [p for n, p in step_3_category_optimizer], 'lr': args.task_learning_rate},
+        {'params': [p for n, p in step_3_category_optimizer1], 'lr': args.task_learning_rate}
     ]
+    criterion = nn.MSELoss()
     optimizer = AdamW(training_param_optimizer, lr=args.learning_rate)
-
     if args.muti_gpu:
         Bert = torch.nn.DataParallel(Bert)
         step_1_model = torch.nn.DataParallel(step_1_model)
         step2_forward_model = torch.nn.DataParallel(step2_forward_model)
         step2_reverse_model = torch.nn.DataParallel(step2_reverse_model)
         step_3_category = torch.nn.DataParallel(step_3_category)
-
+        step_3_category1 = torch.nn.DataParallel(step_3_category1)
     if args.mode == 'train':
         print('-------------------------------')
         logger.info('开始加载训练与验证集')
@@ -690,7 +707,41 @@ def train(args):
                 )
                 category_labels = [t[4][0] for t in sentence_length]
                 pairs = [t[3] for t in sentence_length]
-                category_logits,category_label = step_3_category(spans_embedding,bert_spans_tensor,pairs,category_labels)
+                # category_logits, category_label = step_3_category(spans_embedding, bert_spans_tensor, pairs,
+                #                                               category_labels)
+
+
+                category_labels = torch.cat(category_labels)
+                index = 0
+                input_rep = []
+                category_total_loss = []
+                for i,pair in enumerate(pairs):
+                    real_pair = []
+                    ao_pair = torch.tensor(pair)
+                    for span in ao_pair:
+                        span = span.clone().detach().to(args.device)
+                        aspect_indices = torch.nonzero(torch.all(torch.eq(bert_spans_tensor[i], span[0]), dim=1))
+                        # 如果有匹配的索引，返回第一个匹配的索引；如果没有匹配的索引，返回0
+                        aspect_index = aspect_indices[0][0].item() if aspect_indices.numel() > 0 else 0
+                        opinion_indices = torch.nonzero(torch.all(torch.eq(bert_spans_tensor[i], span[1]), dim=1))
+                        # 如果有匹配的索引，返回第一个匹配的索引；如果没有匹配的索引，返回0
+                        opinion_index = opinion_indices[0][0].item() if opinion_indices.numel() > 0 else 0
+                        real_pair.append([aspect_index, opinion_index])
+
+                    for pair in real_pair:
+                        aspect_index = int(pair[0])
+                        opinion_index = int(pair[1])
+                        aspect_rep = spans_embedding[i][aspect_index]
+                        opinion_rep = spans_embedding[i][opinion_index]
+                        # final_rep = torch.unsqueeze(torch.cat((aspect_rep, opinion_rep),dim=0),0)
+                        final_rep = torch.unsqueeze(aspect_rep+opinion_rep, 0)
+                        category_rep = step_3_category1(torch.tensor([int(category_labels[index])]))
+                        index += 1
+                        category_loss = criterion(category_rep,final_rep)
+                        category_total_loss.append(category_loss)
+
+                total_l = torch.sum(torch.stack(category_total_loss))
+
                 is_aspect = True
                 '''Batch更新'''
                 # 21X420                     21 1 768           21 100 768           21 100        21 420 768    21 420
@@ -732,7 +783,7 @@ def train(args):
                                      all_reverse_aspect_tensor, step_2_aspect_class_logits,
                                      cnn_spans_mask_tensor,reverse_span_mask,
                                      spans_embedding, related_spans_tensor,
-                                     category_label,category_logits,
+
                                      exist_aspect,exist_opinion,
                                      imp_aspect_exist, imp_opinion_exist,
                                      sentence_length,
@@ -741,6 +792,7 @@ def train(args):
                                      opinion_imp_logits,imp_opi_label_tensor,
                                      opinion_imp_polarity_logits,opinion_polarity_label_tensor,
                                      args)
+                loss = loss+total_l
                 if args.accumulation_steps > 1:
                     loss = loss / args.accumulation_steps
                     loss.backward()
@@ -749,6 +801,7 @@ def train(args):
                         if args.whether_warm_up:
                             scheduler.step()
                 else:
+                    # total_l.backward()
                     loss.backward()
                     optimizer.step()
                     if args.whether_warm_up:
@@ -759,14 +812,12 @@ def train(args):
             logger.info(('KL_Loss:', tot_kl_loss))
             tot_loss = 0
             tot_kl_loss = 0
-            if i == 10:
-                print()
             # print('Evaluating, please wait')
             # aspect_result, opinion_result, apce_result, pair_result, triplet_result = eval(Bert, step_1_model,
             #                                                                                step2_forward_model,
             #                                                                                step2_reverse_model,
             #                                                                                devset, args)
-            quad_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
+            quad_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, step_3_category1,testset, args)
             if opinion_imp_list != []:
                 opinion_all_list.append(opinion_imp_list)
             # print('Evaluating complete')
@@ -853,7 +904,7 @@ def train(args):
     step2_forward_model.load_state_dict(state['step2_forward_model'])
     step2_reverse_model.load_state_dict(state['step2_reverse_model'])
     step_3_category.load_state_dict(state['step_3_category'])
-    hyper_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
+    hyper_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, step_3_category1,testset, args)
     return hyper_result
 
 
@@ -989,7 +1040,7 @@ def main():
     parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2023, help="")
     '''修改了数据格式'''
-    parser.add_argument("--dataset", default="restaurant", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
+    parser.add_argument("--dataset", default="laptop", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
     parser.add_argument('--mode', type=str, default="train", choices=["train", "test"], help='option: train, test')
     '''对相似Span进行attention'''
     # 分词中仅使用结果的首token
