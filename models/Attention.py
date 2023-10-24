@@ -3,7 +3,7 @@ import math
 import torch.nn as nn
 import numpy as np
 from transformers.activations import ACT2FN
-
+import torch.nn.functional as F
 class Dim_Four_Attention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -83,7 +83,7 @@ class Attention(nn.Module):
         self.self = SelfAttention(config)
         self.gcn = GCN(config)
         self.output = SelfOutput(config)
-
+        self.aggrate = nn.Linear(config.hidden_size*2,config.hidden_size)
     def forward(
         self,
         hidden_states,
@@ -99,6 +99,7 @@ class Attention(nn.Module):
             encoder_hidden_states,
             encoder_attention_mask)
         # gcn_outputs = self.gcn(hidden_states,attention_mask)
+        # agg_tensor = self.aggrate(torch.cat((hidden_states,lstm_states),dim=-1))
         attention_output = self.output(self_outputs[0],hidden_states)
         outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
         return outputs
@@ -168,7 +169,7 @@ class SelfAttention(nn.Module):
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
 
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = nn.Softmax(dim=-2)(attention_scores)
 
 
         # context_layer = self.gcn(attention_probs,input_features)
@@ -189,13 +190,45 @@ class SelfOutput(nn.Module):
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
+        self.dense2 = nn.Linear(config.hidden_size, config.hidden_size)
+    def forward(self, hidden_states,input_tensor):
+        hidden_states = self.dropout(self.dense(hidden_states))
+        # input_tensor1 = self.dropout(self.dense(input_tensor1))
+        # input_tensor2 = self.dropout(self.dense2(hidden_states+input_tensor))
+        # hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states+input_tensor)
         return hidden_states
 
+class Gate(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super(Gate, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        # 门的权重参数
+        self.weight = nn.Parameter(torch.Tensor(hidden_size, input_size + hidden_size))
+        # 初始化权重
+        nn.init.xavier_uniform_(self.weight)
+
+        # 偏置
+        self.bias = nn.Parameter(torch.Tensor(hidden_size))
+        # 初始化偏置
+        nn.init.zeros_(self.bias)
+
+        # Sigmoid激活函数
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x, h_prev):
+        # 将输入和上一时刻的隐藏状态拼接
+        combined = torch.cat((x, h_prev), dim=1)
+
+        # 计算门的输出
+        gate_output = self.sigmoid(F.linear(combined, self.weight, self.bias))
+
+        # 计算加权后的隐藏状态
+        h_new = gate_output * h_prev + (1 - gate_output) * x
+
+        return h_new
 class Output(nn.Module):
     def __init__(self, config):
         super().__init__()

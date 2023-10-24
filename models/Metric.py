@@ -821,7 +821,7 @@ class Metric():
                     new_aspect_spans.append(pred_aspect)
                 else:
 
-                    if pred_aspect[0] == new_aspect_spans[-1][0]:
+                    if pred_aspect[1] == new_aspect_spans[-1][1]:
                         new_aspect_spans[-1] = pred_aspect
                     else:
                         new_aspect_spans.append(pred_aspect)
