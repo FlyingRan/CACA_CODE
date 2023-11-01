@@ -1,7 +1,7 @@
 from transformers import BertTokenizer
 import numpy as np
 import json
-from .data_BIO_loader import categories,id2category
+from .data_BIO_loader import get_categories
 
 
 id4validity = {0: 'none', 1: 'valid'}
@@ -150,7 +150,7 @@ class Metric():
         # gold_opinion_num_length1, gold_opinion_num_length2, gold_opinion_num_length3, gold_opinion_num_length4, gold_opinion_num_length5 = 0,0,0,0,0
         # pred_opinion_num_length1, pred_opinion_num_length2, pred_opinion_num_length3, pred_opinion_num_length4, pred_opinion_num_length5 = 0,0,0,0,0
         # correct_opinion_num_length1, correct_opinion_num_length2, correct_opinion_num_length3, correct_opinion_num_length4, correct_opinion_num_length5 =  0,0,0,0,0
-
+        categories,id2category = get_categories(self.args)
         if self.args.output_path:
             result = []
             result1= []
@@ -479,6 +479,7 @@ class Metric():
 
     def find_aspect_category(self, sentence_index, bert_spans, span, aspect_category,j):
         # span = [span[1], span[2], ]
+        _,id2category = get_categories(self.args)
         bert_span_index = [i for i,x in enumerate(bert_spans) if span[1] == x[0] and span[2] == x[1]]
         if j<len(bert_span_index):
             bert_span_index = bert_span_index[j]
@@ -673,7 +674,7 @@ class Metric():
         pred_aspect_span = self.pred_aspect[sentence_index]
         asp_opi_imp = self.imp_asp_opi[sentence_index]
         opi_asp_imp = self.imp_opi_asp[sentence_index]
-
+        _,id2category = get_categories(self.args)
         # pred_category_span = self.pred_aspect_category[sentence_index]
         # 去除重复的aspect
         new_aspect_span = []

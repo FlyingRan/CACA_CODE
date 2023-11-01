@@ -76,7 +76,7 @@ class Dim_Four_Attention(nn.Module):
         outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
         return outputs
 
-
+# 2,768,1  2 10 768 =  2 10 1    2 768  1
 class Attention(nn.Module):
     def __init__(self, config):
         super().__init__()
