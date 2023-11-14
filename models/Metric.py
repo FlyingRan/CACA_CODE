@@ -155,6 +155,7 @@ class Metric():
             result = []
             result1= []
             result2 = []
+            all_result = []
             aspect_text = []
             opinion_text = []
         for i in range(len(self.gold_instances)):
@@ -255,7 +256,12 @@ class Metric():
                                    "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
                                    "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
                                    })
-
+                all_result.append({"sentence": self.gold_instances[i]['sentence'],
+                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                   })
             # # pred_aspect = reverse_aspect
             # # pred_opinion = reverse_opinion
             # # pred_apce = reverse_apce
@@ -274,6 +280,10 @@ class Metric():
             F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
             json.dump(result1, F2, ensure_ascii=False, indent=4)
             F2.close()
+
+            F3 = open(self.args.dataset + 'quad_num_all.json', 'w', encoding='utf-8')
+            json.dump(all_result, F3, ensure_ascii=False, indent=4)
+            F3.close()
         quad_result = self.P_R_F1(gold_num, pred_num, correct_num)
 
             # gold_aspect_num, pred_aspect_num, correct_aspect_num = self.num_4_eval(gold_aspect, pred_aspect,

@@ -928,8 +928,7 @@ def load_data_instances_txt1(lines):
         sentence = line[0].split()  # sentence
         # raw_pairs = eval(line[1])  # triplets
         raw_pairs = line[1:]
-        if ex_index==3:
-            print(sentence,raw_pairs)
+
         quad_dict = {}
         aspect_num = 0
         for quad in raw_pairs:
@@ -959,8 +958,7 @@ def load_data_instances_txt1(lines):
             if word not in quad_dict:
                 quad_dict[word] = []
                 quad_dict[word] = ([raw_aspect[0], raw_aspect[-1]], [raw_opinion[0], raw_opinion[-1]], raw_category ,sentiment)
-            else:
-                print('单句' + id + '中三元组重复出现！')
+
         examples = InputExample(id=id, text_a=line[0], text_b=None, all_label=quad_dict, aspect_num=aspect_num,
                                     triple_num=len(quad_dict))
 
@@ -1011,8 +1009,7 @@ def load_data_instances_txt(lines):
             if word not in triple_dict:
                 triple_dict[word] = []
                 triple_dict[word] = ([raw_aspect[0], raw_aspect[-1]], [raw_opinion[0], raw_opinion[-1]], sentiment)
-            else:
-                print('单句' + id + '中三元组重复出现！')
+
         examples = InputExample(id=id, text_a=line[0], text_b=None, all_label=triple_dict, aspect_num=aspect_num,
                                 triple_num=len(triple_dict))
 
