@@ -20,7 +20,7 @@ import numpy as np
 import hyperopt
 from hyperopt import fmin, tpe, hp
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -1486,8 +1486,8 @@ def train(args):
     logger.info("Evaluation on testset:")
 
     # model_path = args.model_dir + args.dataset + '_' +str(best_quad_f1) + '.pt'
-    # model_path = args.model_dir + 'laptop_0.41293752769162606.pt'
-    model_path = args.model_dir + 'restaurant_0.5885057471264368.pt'
+    model_path = args.model_dir + 'laptop_0.41293752769162606.pt'
+    # model_path = args.model_dir + 'restaurant_0.5956497490239823.pt'
 
     if args.muti_gpu:
         state = torch.load(model_path)
@@ -1636,7 +1636,7 @@ def main():
     parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2023, help="")
     '''修改了数据格式'''
-    parser.add_argument("--dataset", default="restaurant", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
+    parser.add_argument("--dataset", default="laptop", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
     parser.add_argument('--mode', type=str, default="test", choices=["train", "test"], help='option: train, test')
     '''对相似Span进行attention'''
     # 分词中仅使用结果的首token

@@ -10,6 +10,15 @@ from allennlp.nn.util import batched_index_select, batched_span_select
 import random
 import math
 
+
+def modify_range(tensor, left_shift, right_shift, max_value):
+    # 往左边移动第一个值
+    shifted_left_0 = max(0, tensor[0] - left_shift)
+
+    # 往右边移动第二个值
+    shifted_right_1 = min(max_value, tensor[1] + right_shift)
+
+    return torch.tensor([shifted_left_0, shifted_right_1])
 def stage_2_features_generation1(bert_feature, attention_mask, spans, span_mask, spans_embedding, spans_embedding1,spans_aspect_tensor,
                                 is_aspect,soft_prop= None,spans_opinion_tensor=None):
     # 对输入的aspect信息进行处理，去除掉无效的aspect span
@@ -51,18 +60,22 @@ def stage_2_features_generation1(bert_feature, attention_mask, spans, span_mask,
         if spans_opinion_tensor is not None:
             spans_opinion_tensor_unspilt = spans_opinion_tensor[i,:].unsqueeze(0)
         if flag != 1:
+            # origin_tensor = torch.tensor([test[1].item(),test[2].item()])
+            # shape_tensor = modify_range(origin_tensor,2,3,last_att)
+            # help = torch.mean(spans_embedding1[batch_num,shape_tensor[0]:shape_tensor[1], :], dim=0).unsqueeze(0)
             aspect_span_embedding_unspilt = spans_embedding[batch_num, span_index, :].unsqueeze(0)
+            # aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, span_index, :],help]),dim=0)[0].unsqueeze(0)
+
         else:
             help = torch.max(spans_embedding1[batch_num, 0:last, :], dim=0)[0].unsqueeze(0)
             if is_aspect:
                 # aspect_span_embedding_unspilt = spans_embedding[batch_num, torch.tensor([0]), :].unsqueeze(0)+torch.max(spans_embedding1[batch_num,0:last,:],dim=0)[0]
-
                 aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, torch.tensor([0]), :],help]),dim=0)[0].unsqueeze(0)
 
             else:
                 # aspect_span_embedding_unspilt = spans_embedding[batch_num,  torch.tensor([last]), :].unsqueeze(0)+torch.max(spans_embedding1[batch_num,0:last,:],dim=0)[0]
 
-                aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, torch.tensor([0]), :],help]), dim=0)[0].unsqueeze(0)
+                aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, torch.tensor([last]), :],help]), dim=0)[0].unsqueeze(0)
             flag = 0
 
         bert_feature_unspilt = bert_feature[batch_num, :, :].unsqueeze(0)
