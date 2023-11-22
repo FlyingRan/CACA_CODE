@@ -20,7 +20,7 @@ import numpy as np
 import hyperopt
 from hyperopt import fmin, tpe, hp
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -69,6 +69,28 @@ def cartesian_product(tensor_list1, tensor_list2):
 
     return result
 
+def merge_and_choose_max(tensor1, tensor2):
+    """
+    合并两个张量并选择概率较大的分类
+
+    参数:
+    - tensor1: 第一个张量
+    - tensor2: 第二个张量
+
+    返回值:
+    - result_tensor: 合并后选择概率较大的分类的结果张量
+    """
+    greater_than_tensor = tensor1 > tensor2
+
+    # 创建一个空的结果张量
+    result_tensor = torch.zeros(tensor1.size(0), dtype=torch.float32)
+
+    # 对每一行进行处理，选择概率较大的分类
+    for i in range(tensor1.size(0)):
+        common_max = torch.argmax(tensor1[i] * greater_than_tensor[i] + tensor2[i] * ~greater_than_tensor[i])
+        result_tensor[i] = common_max
+
+    return result_tensor
 def cal_step1(gold_aspect_label,pred_aspect_label,spans_mask_tensor,total_tp,total_fp,total_fn):
     gold_aspect_label = gold_aspect_label.cpu().numpy()  # 将张量转换为NumPy数组
     pred_aspect_label = pred_aspect_label.cpu().numpy()  # 将张量转换为NumPy数组
@@ -153,12 +175,15 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             #     logger.info(
             #         'STEP 1 MACs:  {}\tSTEP 1 Params: {:.8f}\n\n'.format(macs, param))
 
+            # aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
+            # cnn_spans_mask_tensor,imp_aspect_exist,imp_opinion_exist = step_1_model(
+            #     bert_features.last_hidden_state, attention_mask, bert_spans_tensor, spans_mask_tensor,
+            #     related_spans_tensor, bert_features.pooler_output,sentence_length)
+
             aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
-            cnn_spans_mask_tensor,imp_aspect_exist,imp_opinion_exist = step_1_model(
+                cnn_spans_mask_tensor, imp_aspect_exist, imp_opinion_exist,imp_aspect_exist1, imp_opinion_exist1 = step_1_model(
                 bert_features.last_hidden_state, attention_mask, bert_spans_tensor, spans_mask_tensor,
-                related_spans_tensor, bert_features.pooler_output,sentence_length)
-
-
+                related_spans_tensor, bert_features.pooler_output, sentence_length)
 
             '''Batch更新'''
             pred_aspect_logits = torch.argmax(F.softmax(aspect_class_logits, dim=2), dim=2)
@@ -167,11 +192,14 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                                              torch.tensor(0).type_as(pred_aspect_logits))
 
 
-            pred_imp_aspect = torch.argmax(F.softmax(imp_aspect_exist,dim=1),dim=1)
-            pred_imp_opinion = torch.argmax(F.softmax(imp_opinion_exist,dim=1),dim=1)
+            # pred_imp_aspect = torch.argmax(F.softmax(imp_aspect_exist,dim=1),dim=1)
+            # pred_imp_opinion = torch.argmax(F.softmax(imp_opinion_exist,dim=1),dim=1)
 
-            # pred_category_logits = torch.where(spans_mask_tensor == 1,pred_category_logits,
-            #                                    torch.tensor(0).type_as(pred_category_logits))
+            #一致性
+            pred_imp_aspect = merge_and_choose_max(F.softmax(imp_aspect_exist, dim=1),F.softmax(imp_aspect_exist1, dim=1))
+            pred_imp_opinion = merge_and_choose_max(F.softmax(imp_opinion_exist, dim=1),F.softmax(imp_opinion_exist1, dim=1))
+
+
 
             for i, value in enumerate(sentence_length):
                 flag1 = 0
@@ -1182,9 +1210,6 @@ def eval1(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_catego
     step_3_category.train()
     return quad_result,opinion_imp_list
 def train(args):
-    #print(torch.cuda.device_count())
-    #print(torch.cuda.is_available())
-
     torch.cuda.current_device()
     torch.cuda._initialized = True
     if args.dataset == 'restaurant':
@@ -1281,8 +1306,6 @@ def train(args):
             # for j in range(trainset.batch_count):
                 if j == 1:
                     start = time.time()
-                # if j == 1:
-                #     print()
                 optimizer.zero_grad()
 
                 tokens_tensor, attention_mask, bert_spans_tensor, spans_mask_tensor, spans_ner_label_tensor, \
@@ -1297,26 +1320,20 @@ def train(args):
                             spans_ner_label_tensor[batch_nums][index]=2
                 '''
                 bert_output = Bert(input_ids=tokens_tensor, attention_mask=attention_mask)
-                # class_logits_aspect（shape=[batch_size, 2]）
-                # class_logits_opinion（shape=[batch_size, 2]）
+
                 # aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
-                # cnn_spans_mask_tensor= step_1_model(
-                #                                                                       bert_output.last_hidden_state,
-                #                                                                       attentio n_mask,
-                #                                                                       bert_spans_tensor,
-                #                                                                       spans_mask_tensor,
-                #                                                                       related_spans_tensor,
-                #                                                                       sentence_length)
+                # cnn_spans_mask_tensor,imp_aspect_exist,imp_opinion_exist = step_1_model(bert_output.last_hidden_state,attention_mask,bert_spans_tensor,spans_mask_tensor,
+                #                                                                         related_spans_tensor,bert_output.pooler_output,sentence_length,)
+
                 aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
-                cnn_spans_mask_tensor,imp_aspect_exist,imp_opinion_exist = step_1_model(
-                                                                            bert_output.last_hidden_state,
-                                                                            attention_mask,
-                                                                            bert_spans_tensor,
-                                                                            spans_mask_tensor,
-                                                                            related_spans_tensor,
-                                                                            bert_output.pooler_output,
-                                                                            sentence_length,
-                )
+                cnn_spans_mask_tensor, imp_aspect_exist, imp_opinion_exist,imp_aspect_exist1,imp_opinion_exist1 = step_1_model(bert_output.last_hidden_state,
+                                                                                          attention_mask,
+                                                                                          bert_spans_tensor,
+                                                                                          spans_mask_tensor,
+                                                                                          related_spans_tensor,
+                                                                                          bert_output.pooler_output,
+                                                                                          sentence_length)
+
                 bool_mask = spans_mask_tensor.bool()
 
                 masked_logits = opinion_class_logits.masked_fill(~bool_mask.unsqueeze(-1),float('-inf'))
@@ -1361,24 +1378,22 @@ def train(args):
                 exist_aspect = spans_ner_label_tensor[:,0]
                 exist_opinion = reverse_ner_label_tensor[range(reverse_ner_label_tensor.shape[0]), torch.sum(spans_mask_tensor, dim=-1) - 1]
                 # 计算loss和KL loss
-                # loss, kl_loss = Loss(spans_ner_label_tensor, aspect_class_logits, all_span_opinion_tensor, step_2_opinion_class_logits,
-                #             spans_mask_tensor, all_span_mask, reverse_ner_label_tensor, opinion_class_logits,
-                #             all_reverse_aspect_tensor, step_2_aspect_class_logits, cnn_spans_mask_tensor, reverse_span_mask,
-                #             spans_embedding, related_spans_tensor, args)
-                loss, kl_loss = Loss(spans_ner_label_tensor, aspect_class_logits,
-                                     all_span_opinion_tensor,step_2_opinion_class_logits,
-                                     spans_mask_tensor, all_span_mask,
-                                     reverse_ner_label_tensor, opinion_class_logits,
-                                     all_reverse_aspect_tensor, step_2_aspect_class_logits,
-                                     cnn_spans_mask_tensor,reverse_span_mask,
-                                     spans_embedding, related_spans_tensor,
-                                     category_label,category_logits,
-                                     exist_aspect,exist_opinion,
-                                     imp_aspect_exist, imp_opinion_exist,
-                                     sentence_length,
-                                     opinion_prob_tensor,forward_softmax,
-                                     aspect_prob_tensor,reverse_softmax,
-                                     args)
+
+                # loss, kl_loss = Loss(spans_ner_label_tensor, aspect_class_logits,all_span_opinion_tensor,step_2_opinion_class_logits,spans_mask_tensor, all_span_mask,
+                #                      reverse_ner_label_tensor, opinion_class_logits,all_reverse_aspect_tensor, step_2_aspect_class_logits,
+                #                      cnn_spans_mask_tensor,reverse_span_mask,spans_embedding, related_spans_tensor,category_label,category_logits,
+                #                      exist_aspect,exist_opinion,imp_aspect_exist, imp_opinion_exist,sentence_length,opinion_prob_tensor,forward_softmax,
+                #                      aspect_prob_tensor,reverse_softmax,args)
+
+                loss, kl_loss = Loss(spans_ner_label_tensor, aspect_class_logits, all_span_opinion_tensor,
+                                     step_2_opinion_class_logits, spans_mask_tensor, all_span_mask,
+                                     reverse_ner_label_tensor, opinion_class_logits, all_reverse_aspect_tensor,
+                                     step_2_aspect_class_logits,
+                                     cnn_spans_mask_tensor, reverse_span_mask, spans_embedding, related_spans_tensor,
+                                     category_label, category_logits,
+                                     exist_aspect, exist_opinion, imp_aspect_exist, imp_opinion_exist, sentence_length,
+                                     opinion_prob_tensor, forward_softmax,
+                                     aspect_prob_tensor, reverse_softmax, imp_aspect_exist1,imp_opinion_exist1, args)
                 if args.accumulation_steps > 1:
                     loss = loss / args.accumulation_steps
                     loss.backward()
@@ -1397,8 +1412,7 @@ def train(args):
             logger.info(('KL_Loss:', tot_kl_loss))
             tot_loss = 0
             tot_kl_loss = 0
-            if i == 10:
-                print()
+
             # print('Evaluating, please wait')
             # aspect_result, opinion_result, apce_result, pair_result, triplet_result = eval(Bert, step_1_model,
             #                                                                                step2_forward_model,
@@ -1485,8 +1499,8 @@ def train(args):
     logger.info("Features build completed")
     logger.info("Evaluation on testset:")
 
-    # model_path = args.model_dir + args.dataset + '_' +str(best_quad_f1) + '.pt'
-    model_path = args.model_dir + 'laptop_0.41293752769162606.pt'
+    model_path = args.model_dir + args.dataset + '_' +str(best_quad_f1) + '.pt'
+    # model_path = args.model_dir + 'laptop_0.41293752769162606.pt'
     # model_path = args.model_dir + 'restaurant_0.5956497490239823.pt'
 
     if args.muti_gpu:
@@ -1636,8 +1650,8 @@ def main():
     parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2023, help="")
     '''修改了数据格式'''
-    parser.add_argument("--dataset", default="laptop", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
-    parser.add_argument('--mode', type=str, default="test", choices=["train", "test"], help='option: train, test')
+    parser.add_argument("--dataset", default="restaurant", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
+    parser.add_argument('--mode', type=str, default="train", choices=["train", "test"], help='option: train, test')
     '''对相似Span进行attention'''
     # 分词中仅使用结果的首token
     parser.add_argument("--Only_token_head", default=False)
