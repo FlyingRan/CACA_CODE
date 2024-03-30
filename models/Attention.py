@@ -84,6 +84,9 @@ class Attention(nn.Module):
         self.gcn = GCN(config)
         self.output = SelfOutput(config)
         self.aggrate = nn.Linear(config.hidden_size*2,config.hidden_size)
+        # self.lstm = nn.LSTM(input_size=config.hidden_size, hidden_size=config.hidden_size, num_layers=2, batch_first=True)
+        # self.dense = nn.Linear(128, config.hidden_size)
+
     def forward(
         self,
         hidden_states,
@@ -101,6 +104,8 @@ class Attention(nn.Module):
         # gcn_outputs = self.gcn(hidden_states,attention_mask)
         # agg_tensor = self.aggrate(torch.cat((hidden_states,lstm_states),dim=-1))
         attention_output = self.output(self_outputs[0],hidden_states)
+        # lstm_outputs, (lstm_hidden, lstm_cell) = self.lstm(attention_output)
+        # lstm_outputs = self.dense(lstm_outputs)
         outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
         return outputs
 
@@ -241,6 +246,7 @@ class Output(nn.Module):
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states +input_tensor)
         return hidden_states
+
 
 class GraphConvLayer(nn.Module):
     def __init__(self, in_features, out_features):

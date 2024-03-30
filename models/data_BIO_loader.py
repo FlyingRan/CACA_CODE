@@ -4,40 +4,12 @@ import numpy as np
 import random
 import json
 from transformers import BertTokenizer
-
+from spans import *
+import torch.nn.functional as F
 validity2id = {'none': 0, 'positive': 1, 'negative': 1, 'neutral': 1}
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
-# if args.dataset == 'restaurant
-'''
-categories = ['MULTIMEDIA_DEVICES#PRICE', 'OS#QUALITY', 'SHIPPING#QUALITY', 'GRAPHICS#OPERATION_PERFORMANCE', 'CPU#OPERATION_PERFORMANCE',
-            'COMPANY#DESIGN_FEATURES', 'MEMORY#OPERATION_PERFORMANCE', 'SHIPPING#PRICE', 'POWER_SUPPLY#CONNECTIVITY', 'SOFTWARE#USABILITY',
-            'FANS&COOLING#GENERAL', 'GRAPHICS#DESIGN_FEATURES', 'BATTERY#GENERAL', 'HARD_DISC#USABILITY', 'FANS&COOLING#DESIGN_FEATURES',
-            'MEMORY#DESIGN_FEATURES', 'MOUSE#USABILITY', 'CPU#GENERAL', 'LAPTOP#QUALITY', 'POWER_SUPPLY#GENERAL', 'PORTS#QUALITY',
-            'KEYBOARD#PORTABILITY', 'SUPPORT#DESIGN_FEATURES', 'MULTIMEDIA_DEVICES#USABILITY', 'MOUSE#GENERAL', 'KEYBOARD#MISCELLANEOUS',
-            'MULTIMEDIA_DEVICES#DESIGN_FEATURES', 'OS#MISCELLANEOUS', 'LAPTOP#MISCELLANEOUS', 'SOFTWARE#PRICE', 'FANS&COOLING#OPERATION_PERFORMANCE',
-            'MEMORY#QUALITY', 'OPTICAL_DRIVES#OPERATION_PERFORMANCE', 'HARD_DISC#GENERAL', 'MEMORY#GENERAL', 'DISPLAY#OPERATION_PERFORMANCE',
-            'MULTIMEDIA_DEVICES#GENERAL', 'LAPTOP#GENERAL', 'MOTHERBOARD#QUALITY', 'LAPTOP#PORTABILITY', 'KEYBOARD#PRICE', 'SUPPORT#OPERATION_PERFORMANCE',
-            'GRAPHICS#GENERAL', 'MOTHERBOARD#OPERATION_PERFORMANCE', 'DISPLAY#GENERAL', 'BATTERY#QUALITY', 'LAPTOP#USABILITY', 'LAPTOP#DESIGN_FEATURES',
-            'PORTS#CONNECTIVITY', 'HARDWARE#QUALITY', 'SUPPORT#GENERAL', 'MOTHERBOARD#GENERAL', 'PORTS#USABILITY', 'KEYBOARD#QUALITY', 'GRAPHICS#USABILITY',
-            'HARD_DISC#PRICE', 'OPTICAL_DRIVES#USABILITY', 'MULTIMEDIA_DEVICES#CONNECTIVITY', 'HARDWARE#DESIGN_FEATURES', 'MEMORY#USABILITY',
-            'SHIPPING#GENERAL', 'CPU#PRICE', 'Out_Of_Scope#DESIGN_FEATURES', 'MULTIMEDIA_DEVICES#QUALITY', 'OS#PRICE', 'SUPPORT#QUALITY',
-            'OPTICAL_DRIVES#GENERAL', 'HARDWARE#USABILITY', 'DISPLAY#DESIGN_FEATURES', 'PORTS#GENERAL', 'COMPANY#OPERATION_PERFORMANCE',
-            'COMPANY#GENERAL', 'Out_Of_Scope#GENERAL', 'KEYBOARD#DESIGN_FEATURES', 'Out_Of_Scope#OPERATION_PERFORMANCE',
-            'OPTICAL_DRIVES#DESIGN_FEATURES', 'LAPTOP#OPERATION_PERFORMANCE', 'KEYBOARD#USABILITY', 'DISPLAY#USABILITY', 'POWER_SUPPLY#QUALITY',
-            'HARD_DISC#DESIGN_FEATURES', 'DISPLAY#QUALITY', 'MOUSE#DESIGN_FEATURES', 'COMPANY#QUALITY', 'HARDWARE#GENERAL', 'COMPANY#PRICE',
-            'MULTIMEDIA_DEVICES#OPERATION_PERFORMANCE', 'KEYBOARD#OPERATION_PERFORMANCE', 'SOFTWARE#PORTABILITY', 'HARD_DISC#OPERATION_PERFORMANCE',
-            'BATTERY#DESIGN_FEATURES', 'CPU#QUALITY', 'WARRANTY#GENERAL', 'OS#DESIGN_FEATURES', 'OS#OPERATION_PERFORMANCE', 'OS#USABILITY',
-            'SOFTWARE#GENERAL', 'SUPPORT#PRICE', 'SHIPPING#OPERATION_PERFORMANCE', 'DISPLAY#PRICE', 'LAPTOP#PRICE', 'OS#GENERAL', 'HARDWARE#PRICE',
-            'SOFTWARE#DESIGN_FEATURES', 'HARD_DISC#MISCELLANEOUS', 'PORTS#PORTABILITY', 'FANS&COOLING#QUALITY', 'BATTERY#OPERATION_PERFORMANCE',
-            'CPU#DESIGN_FEATURES', 'PORTS#OPERATION_PERFORMANCE', 'SOFTWARE#OPERATION_PERFORMANCE', 'KEYBOARD#GENERAL', 'SOFTWARE#QUALITY',
-            'LAPTOP#CONNECTIVITY', 'POWER_SUPPLY#DESIGN_FEATURES', 'HARDWARE#OPERATION_PERFORMANCE', 'WARRANTY#QUALITY', 'HARD_DISC#QUALITY',
-            'POWER_SUPPLY#OPERATION_PERFORMANCE', 'PORTS#DESIGN_FEATURES', 'Out_Of_Scope#USABILITY']
 
-
-categories =['RESTAURANT#GENERAL', 'SERVICE#GENERAL', 'FOOD#GENERAL', 'FOOD#QUALITY', 'FOOD#STYLE_OPTIONS', 'DRINKS#STYLE_OPTIONS', 'DRINKS#PRICES',
-            'AMBIENCE#GENERAL', 'RESTAURANT#PRICES', 'FOOD#PRICES', 'RESTAURANT#MISCELLANEOUS', 'DRINKS#QUALITY', 'LOCATION#GENERAL']
-'''
 
 def get_categories(args):
     if args.dataset == "restaurant":
@@ -418,6 +390,24 @@ def load_data(args, path, if_train=False):
         list_instance_batch.append(data_instances[i:i + args.train_batch_size])
     return list_instance_batch
 
+def write_json_data(path,dataset):
+    with open(path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    result = []
+    for ex_index, line in enumerate(lines):
+        line = line.strip()
+        line = line.split('\t')
+        sentence = line[0].split()  # sentence
+        # 将数据组织成字典
+        data_dict = {"tokens": sentence}
+        # 将字典添加到结果列表中
+        result.append(data_dict)
+
+    # 写入 JSON 文件
+    output_file_path = dataset+ "_output.json"
+    with open(output_file_path, "w") as json_file:
+        json.dump(result, json_file, indent=2)
 def load_data1(args, path, if_train=False):
     with open(path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -507,34 +497,48 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         temp_flag = 0
         aspect_polarity_label = []
         opinion_polarity_label = []
-        for asp_span,opi_sen_list in opinion.items():
+        temp_asp=[]
+        temp_opi=[]
+        for asp_span,opi_sen_list in aspect_reverse.items():
             for opi_sen in opi_sen_list:
                 if opi_sen[0] == (-1,-2) and temp_flag!=1:
-                    sample['imp_asp'].append(1)
+                    temp_asp.append(1)
                     aspect_polarity_label.append(sentiment2id[opi_sen[1]])
                     temp_flag = 1
                     break;
             if temp_flag == 0:
-                sample['imp_asp'].append(0)
+                temp_asp.append(0)
                 aspect_polarity_label.append(sentiment2id[opi_sen[1]])
             temp_flag = 0
-        assert len(opinion) == len(sample['imp_asp'])
+        # assert len(opinion) == len(sample['imp_asp'])
 
         temp_flag = 0
-        for opi_span, asp_sen_list in aspect_reverse.items():
+        for opi_span, asp_sen_list in opinion.items():
             for asp_sen in asp_sen_list:
                 if asp_sen[0] == (-1, -2) and temp_flag != 1:
-                    sample['imp_opi'].append(1)
+                    temp_opi.append(1)
                     opinion_polarity_label.append(sentiment2id[asp_sen[1]])
                     temp_flag = 1
                     break;
             if temp_flag == 0:
-                sample['imp_opi'].append(0)
+                temp_opi.append(0)
                 opinion_polarity_label.append(sentiment2id[asp_sen[1]])
             temp_flag = 0
             #aspect_polarity_label.append(sentiment2id[asp_sentiment])
 
+        if all(x in temp_asp for x in [0, 1]):
+            sample['imp_asp'].append(2)
+        elif 1 in temp_asp:
+            sample['imp_asp'].append(1)
+        else:
+            sample['imp_asp'].append(0)
 
+        if all(x in temp_opi for x in [0, 1]):
+            sample['imp_opi'].append(2)
+        elif 1 in temp_opi:
+            sample['imp_opi'].append(1)
+        else:
+            sample['imp_opi'].append(0)
         '''
         for opi_span,opi_sentiment in opinion_reverse.items():
             if opi_span == (-1,-2):
@@ -1022,10 +1026,16 @@ def load_data_instances_txt(lines):
 
 class DataTterator(object):
     def __init__(self, instances, args):
+
+        with open(args.dataset+"_"+args.mode+"_new.json", 'r', encoding='utf-8') as f:
+            raw_data = json.load(f)
+
+
         self.instances = instances
         self.args = args
         self.batch_count = len(instances)
         self.tokenizer = BertTokenizer.from_pretrained(args.init_vocab, do_lower_case=args.do_lower_case)
+        self.adj = self.adj_compute(args, raw_data, self.tokenizer)
 
     def get_batch(self, batch_num):
         tokens_tensor_list = []
@@ -1186,7 +1196,66 @@ class DataTterator(object):
                final_reverse_ner_label_tensor, final_reverse_opinion_tensor, final_reverse_aspect_label_tensor, \
                final_related_spans_tensor, sentence_length
 
+    def text2bert_id(self,token, tokenizer):
+        re_token = []
+        word_mapback = []
+        word_split_len = []
+        for idx, word in enumerate(token):
+            temp = tokenizer.tokenize(word)
+            re_token.extend(temp)
+            word_mapback.extend([idx] * len(temp))
+            word_split_len.append(len(temp))
+        re_id = tokenizer.convert_tokens_to_ids(re_token)
+        return re_id, word_mapback, word_split_len
+    def adj_compute(self,  args, data, tokenizer):
 
+        max_len = args.max_len
+
+        sub_len = len(args.special_token)
+
+
+        i = 0
+        for d in data:
+            tok = list(d['token'])
+            if args.lower:
+                tok = [t.lower() for t in tok]
+
+            text_raw_bert_indices, word_mapback, _ = self.text2bert_id(tok, tokenizer)
+
+            text_raw_bert_indices = text_raw_bert_indices[:max_len]
+            word_mapback = word_mapback[:max_len]
+
+            length = word_mapback[-1] + 1
+
+
+
+            dep_head = list(d['dep_head'])[:length]
+
+            # map2id
+            # tok = [token_vocab.stoi.get(t, token_vocab.unk_index) for t in tok]
+
+            # con
+            con_head = d['con_head']
+            con_mapnode = d['con_mapnode']
+            con_path_dict, con_children = get_path_and_children_dict(con_head)
+            mapback = [idx for idx, word in enumerate(con_mapnode) if word[-sub_len:] != args.special_token]
+
+            layers, influence_range, node2layerid = form_layers_and_influence_range(con_path_dict, mapback)
+
+            spans = form_spans(layers, influence_range, length, con_mapnode)
+
+            adj_i_oneshot = head_to_adj_oneshot(dep_head, length, d['aspects'])
+
+            cd_adj = np.ones((length, length))
+            if args.con_dep_conditional:
+                father = 1
+                if father in con_children and [con_mapnode[node] for node in con_children[father]].count('S[N]') > 1 and \
+                        con_mapnode[father] == 'S[N]':
+                    cd_span = spans[node2layerid[father] + 1]
+                    cd_adj = get_conditional_adj(father, length, cd_span, con_children, con_mapnode)
+
+            adj_i_oneshot = adj_i_oneshot * cd_adj
+        return adj_i_oneshot
     def get_input_tensors(self, tokenizer, tokens, spans, spans_ner_label, spans_aspect_label, spans_opinion_label,
                           reverse_ner_label, reverse_opinion_labels, reverse_aspect_label):
         start2idx = []
@@ -1194,9 +1263,11 @@ class DataTterator(object):
         bert_tokens = []
         bert_tokens.append(tokenizer.cls_token)
         for token in tokens:
+            sub_tokens = tokenizer.tokenize(token)
+
             start2idx.append(len(bert_tokens))
             test_1 = len(bert_tokens)
-            sub_tokens = tokenizer.tokenize(token)
+
             if self.args.span_generation == "CNN":
                 bert_tokens.append(sub_tokens[0])
             elif self.args.Only_token_head:
@@ -1231,10 +1302,16 @@ class DataTterator(object):
 
 class DataTterator2(object):
     def __init__(self, instances, args):
+        # with open("./models/"+args.dataset + "_" + args.mode + "_output_new.json", 'r', encoding='utf-8') as f:
+        #     raw_data = json.load(f)
         self.instances = instances
         self.args = args
         self.batch_count = len(instances)
         self.tokenizer = BertTokenizer.from_pretrained(args.init_vocab, do_lower_case=args.do_lower_case)
+        # self.adj = self.adj_compute(args, raw_data, self.tokenizer)
+
+
+    
 
     def get_batch(self, batch_num):
         tokens_tensor_list = []
@@ -1555,3 +1632,14 @@ class DataTterator2(object):
         return bert_tokens,tokens_tensor, bert_spans_tensor, spans_ner_label_tensor, spans_aspect_tensor, spans_opinion_tensor, \
                reverse_ner_label_tensor, reverse_opinion_tensor, reverse_aspect_tensor,spans_category_label_tensor,final_ao_pair, \
                imp_asp_label_tensor,imp_opi_label_tensor,aspect_polarity_label_tensor,opinion_polarity_label_tensor
+
+
+
+if __name__ == '__main__':
+    write_json_data("../datasets/Laptop-ACOS/laptop_quad_train.tsv","laptop_trian")
+    write_json_data("../datasets/Laptop-ACOS/laptop_quad_test.tsv","laptop_test")
+    write_json_data("../datasets/Laptop-ACOS/laptop_quad_dev.tsv","laptop_dev")
+
+    write_json_data("../datasets/Restaurant-ACOS/rest16_quad_train.tsv","restaurant_train")
+    write_json_data("../datasets/Restaurant-ACOS/rest16_quad_test.tsv", "restaurant_test")
+    write_json_data("../datasets/Restaurant-ACOS/rest16_quad_dev.tsv", "restaurant_dev")
