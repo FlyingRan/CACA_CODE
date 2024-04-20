@@ -849,8 +849,8 @@ class Metric():
                 #     sentiment = opinion_sentiment
                 # else:
                 #     sentiment = aspect_sentiment
-                # if opinion_sentiment_logit*aspect_logits <= self.args.filter_a:
-                #     continue
+                if opinion_sentiment_logit*aspect_logits <= self.args.filter_a:
+                    continue
                 pred_opinion_list.append(opinion)
                 apce_list.append((aspect, opinion_sentiment))
                 triples_list.append((aspect, opinion, opinion_sentiment))
@@ -935,7 +935,6 @@ class Metric():
                 if len(new_aspect_spans) == 0:
                     new_aspect_spans.append(pred_aspect)
                 else:
-
                     if pred_aspect[1] == new_aspect_spans[-1][1]:
                         new_aspect_spans[-1] = pred_aspect
                     else:
@@ -954,8 +953,8 @@ class Metric():
                 #     sentiment = opinion_sentiment
                 # else:
                 #     sentiment = aspect_sentiment
-                # if aspect_sentiment_precent*opinion_logits <= self.args.filter_a:
-                #     continue
+                if aspect_sentiment_precent*opinion_logits <= self.args.filter_a:
+                    continue
                 pred_aspect_list.append((aspect))
                 apce_list.append((aspect, aspect_sentiment))
                 triples_list.append((aspect, opinion, aspect_sentiment))

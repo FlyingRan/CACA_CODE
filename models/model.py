@@ -4,7 +4,7 @@ import torch.nn.functional as F
 # import numpy
 # from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput
 
-from .Attention import Attention, Intermediate, Output, Dim_Four_Attention, masked_softmax,implict_ATT
+from .Attention import Attention, Intermediate, Output, Dim_Four_Attention, masked_softmax,implict_ATT,SelfAttention
 from .data_BIO_loader import sentiment2id, validity2id
 from allennlp.nn.util import batched_index_select, batched_span_select
 import random
@@ -20,7 +20,7 @@ def modify_range(tensor, left_shift, right_shift, max_value):
 
     return torch.tensor([shifted_left_0, shifted_right_1])
 def stage_2_features_generation1(bert_feature, attention_mask, spans, span_mask, spans_embedding, spans_embedding1,spans_aspect_tensor,
-                                is_aspect,soft_prop= None,spans_opinion_tensor=None):
+                                is_aspect,imp_rep,soft_prop= None,spans_opinion_tensor=None):
     # 对输入的aspect信息进行处理，去除掉无效的aspect span
     all_span_aspect_tensor = None
     all_span_opinion_tensor = None
@@ -60,22 +60,19 @@ def stage_2_features_generation1(bert_feature, attention_mask, spans, span_mask,
         if spans_opinion_tensor is not None:
             spans_opinion_tensor_unspilt = spans_opinion_tensor[i,:].unsqueeze(0)
         if flag != 1:
-            # origin_tensor = torch.tensor([test[1].item(),test[2].item()])
-            # shape_tensor = modify_range(origin_tensor,2,3,last_att)
-            # help = torch.mean(spans_embedding1[batch_num,shape_tensor[0]:shape_tensor[1], :], dim=0).unsqueeze(0)
             aspect_span_embedding_unspilt = spans_embedding[batch_num, span_index, :].unsqueeze(0)
-            # aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, span_index, :],help]),dim=0)[0].unsqueeze(0)
-
         else:
-            help = torch.mean(spans_embedding1[batch_num, 0:last, :], dim=0).unsqueeze(0)
+            # help = torch.mean(spans_embedding1[batch_num, 0:last, :], dim=0).unsqueeze(0)
             if is_aspect:
                 # aspect_span_embedding_unspilt = spans_embedding[batch_num, torch.tensor([0]), :].unsqueeze(0)
-                aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, torch.tensor([0]), :],help]),dim=0)[0].unsqueeze(0)
-
+                # aspect_span_embedding_unspilt = torch.mean(torch.stack([spans_embedding[batch_num, torch.tensor([0]), :],imp_rep[batch_num].unsqueeze(0)]),dim=0).unsqueeze(0)
+                aspect_span_embedding_unspilt = (spans_embedding[batch_num, torch.tensor([0]), :]+imp_rep[batch_num]).unsqueeze(0)
+                # aspect_span_embedding_unspilt = imp_rep[batch_num].unsqueeze(0)
             else:
                 # aspect_span_embedding_unspilt = spans_embedding[batch_num,  torch.tensor([last]), :].unsqueeze(0)
-
-                aspect_span_embedding_unspilt = torch.max(torch.stack([spans_embedding[batch_num, torch.tensor([last]), :],help]), dim=0)[0].unsqueeze(0)
+                # aspect_span_embedding_unspilt = torch.mean(torch.stack([spans_embedding[batch_num, torch.tensor([last]), :],imp_rep[batch_num].unsqueeze(0)]), dim=0).unsqueeze(0)
+                aspect_span_embedding_unspilt = (spans_embedding[batch_num, torch.tensor([last]), :]+imp_rep[batch_num]).unsqueeze(0)
+                # aspect_span_embedding_unspilt = imp_rep[batch_num].unsqueeze(0)
             flag = 0
 
         bert_feature_unspilt = bert_feature[batch_num, :, :].unsqueeze(0)
@@ -114,86 +111,6 @@ def stage_2_features_generation1(bert_feature, attention_mask, spans, span_mask,
             all_span_mask = torch.cat((all_span_mask, span_mask_unspilt), dim=0)
     return all_span_opinion_tensor, all_span_aspect_tensor, all_bert_embedding, all_attention_mask, \
            all_spans_embedding, all_spans_embedding1,all_span_mask,all_left_tensor,all_right_tensor,all_prob_tensor
-def stage_2_features_generation(bert_feature, attention_mask, spans, span_mask, spans_embedding, spans_aspect_tensor,
-                                is_aspect,soft_prop= None,spans_opinion_tensor=None):
-    # 对输入的aspect信息进行处理，去除掉无效的aspect span
-    all_span_aspect_tensor = None
-    all_span_opinion_tensor = None
-    all_bert_embedding = None
-    all_attention_mask = None
-    all_spans_embedding = None
-    all_span_mask = None
-    all_left_tensor = None
-    all_right_tensor = None
-    all_prob_tensor = None
-    spans_aspect_tensor_spilt = torch.chunk(spans_aspect_tensor, spans_aspect_tensor.shape[0], dim=0)
-    flag = 0
-    for i, spans_aspect_tensor_unspilt in enumerate(spans_aspect_tensor_spilt):
-        test = spans_aspect_tensor_unspilt.squeeze()
-        batch_num = spans_aspect_tensor_unspilt.squeeze(0)[0]
-        last = torch.sum(span_mask[batch_num]).item() - 1
-        # mask4span_start = torch.where(span_mask[batch_num, :] == 1, spans[batch_num, :, 0], torch.tensor(-1).type_as(spans))
-        if (test[1] == test[2] == -1) or (test[1] == test[2] == 0):
-            flag = 1
-            # left = torch.mean(spans_embedding[batch_num, 1:last, :],dim=0)
-            # right,_ = torch.max(spans_embedding[batch_num, 1:last, :],dim=0)
-        else:
-            span_index_start = torch.where(spans[batch_num, :, 0] == spans_aspect_tensor_unspilt.squeeze()[1],
-                                           spans[batch_num, :, 1], torch.tensor(-1).type_as(spans))
-            span_index_end = torch.where(span_index_start == spans_aspect_tensor_unspilt.squeeze()[2], span_index_start,
-                                         torch.tensor(-1).type_as(spans))
-            span_index = torch.nonzero((span_index_end > -1), as_tuple=False).squeeze(0)
-
-            # left = torch.mean(spans_embedding[batch_num, 1:span_index, :], dim=0) if span_index != 1 else \
-            # spans_embedding[batch_num][0]
-            # right = torch.mean(spans_embedding[batch_num, span_index:last, :], dim=0) if span_index != last else \
-            # spans_embedding[batch_num][last]
-        # if min(span_index.shape) == 0:
-        #     continue
-        if spans_opinion_tensor is not None:
-            spans_opinion_tensor_unspilt = spans_opinion_tensor[i,:].unsqueeze(0)
-        if flag != 1:
-            aspect_span_embedding_unspilt = spans_embedding[batch_num, span_index, :].unsqueeze(0)
-        else:
-            if is_aspect:
-                aspect_span_embedding_unspilt = spans_embedding[batch_num, torch.tensor([0]), :].unsqueeze(0)
-            else:
-                aspect_span_embedding_unspilt = spans_embedding[batch_num,  torch.tensor([last]), :].unsqueeze(0)
-            flag = 0
-
-        bert_feature_unspilt = bert_feature[batch_num, :, :].unsqueeze(0)
-        attention_mask_unspilt = attention_mask[batch_num, :].unsqueeze(0)
-        spans_embedding_unspilt = spans_embedding[batch_num, :, :].unsqueeze(0)
-        span_mask_unspilt = span_mask[batch_num, :].unsqueeze(0)
-        if soft_prop is not None:
-            prob_tensor = soft_prop[batch_num].unsqueeze(0)
-        if all_span_aspect_tensor is None:
-            if spans_opinion_tensor is not None:
-                all_span_opinion_tensor = spans_opinion_tensor_unspilt
-            all_span_aspect_tensor = aspect_span_embedding_unspilt
-            all_bert_embedding = bert_feature_unspilt
-            all_attention_mask = attention_mask_unspilt
-            all_spans_embedding = spans_embedding_unspilt
-            all_span_mask = span_mask_unspilt
-            # all_left_tensor = left
-            # all_right_tensor = right
-            if soft_prop is not None:
-                all_prob_tensor = prob_tensor
-        else:
-            if spans_opinion_tensor is not None:
-                all_span_opinion_tensor = torch.cat((all_span_opinion_tensor, spans_opinion_tensor_unspilt), dim=0)
-            all_span_aspect_tensor = torch.cat((all_span_aspect_tensor, aspect_span_embedding_unspilt), dim=0)
-            num_dims = len(all_span_aspect_tensor.shape)
-            if soft_prop is not None:
-                all_prob_tensor = torch.cat((all_prob_tensor,prob_tensor),dim=0)
-            all_bert_embedding = torch.cat((all_bert_embedding, bert_feature_unspilt), dim=0)
-            all_attention_mask = torch.cat((all_attention_mask, attention_mask_unspilt), dim=0)
-            # all_left_tensor = torch.cat((all_left_tensor, left), dim=0)
-            # all_right_tensor = torch.cat((all_right_tensor, right), dim=0)
-            all_spans_embedding = torch.cat((all_spans_embedding, spans_embedding_unspilt), dim=0)
-            all_span_mask = torch.cat((all_span_mask, span_mask_unspilt), dim=0)
-    return all_span_opinion_tensor, all_span_aspect_tensor, all_bert_embedding, all_attention_mask, \
-           all_spans_embedding, all_span_mask,all_left_tensor,all_right_tensor,all_prob_tensor
 
 
 class RelativePositionEncoding(nn.Module):
@@ -348,10 +265,12 @@ class Step_1(torch.nn.Module):
         # self.categories_classification_opinion = nn.Linear(args.bert_feature_dim, len(categories))
         self.ATT_attentions = nn.ModuleList(
             [Dim_Four_Block(args, self.bert_config) for _ in range(max(1, args.ATT_SPAN_block_num - 1))])
-        self.multhead_asp = nn.MultiheadAttention(embed_dim=args.bert_feature_dim, num_heads=4)
+        self.multhead_asp = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
 
-        self.multhead_opi = nn.MultiheadAttention(embed_dim=args.bert_feature_dim, num_heads=4)
+        self.multhead_opi = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
 
+        self.imp_asp_mlp =  nn.Linear(args.bert_feature_dim, args.bert_feature_dim * 2)
+        self.imp_opi_mlp =  nn.Linear(args.bert_feature_dim, args.bert_feature_dim * 2)
         self.imp_asp_classifier = nn.Sequential(
             nn.Dropout(args.drop_out),
             nn.Linear(args.bert_feature_dim, 2)
@@ -360,12 +279,18 @@ class Step_1(torch.nn.Module):
             nn.Dropout(args.drop_out),
             nn.Linear(args.bert_feature_dim, 2)
         )
-
+        # self.textCNN_A = TextCNN(args.bert_feature_dim,2,[3,4,5],3)
+        # self.textCNN_O = TextCNN(args.bert_feature_dim,2,[3,4,5],3)
+        # 创建 intermediate 层，用于对 attention_output 进行非线性变换，提高特征表达的能力
+        self.intermediate = Intermediate(bert_config)
+        # 创建 output 层，用于将经过 intermediate 层处理之后的特征映射到实际输出空间中
+        self.output_a = Output(bert_config)
+        self.output_o = Output(bert_config)
         # self.compess_projection = nn.Sequential(nn.Linear(args.bert_feature_dim, 1), nn.ReLU(),
         #                                             nn.Dropout(args.drop_out))
 
         # self.opinion_lstm = HierarchicalLSTMWithAttention(args.bert_feature_dim,128,2)
-        # self.aspect_lstm = HierarchicalLSTMWithAttention(args.bert_feature_dim, 128, 2)
+        # self.aspect_lstm = HierarchicalLSTMWithAttention(args.bert_feature_dim, 12o8, 2)
 
         # self._densenet = nn.Sequential(nn.Linear(args.bert_feature_dim*4, args.bert_feature_dim),
         #                                nn.Tanh())
@@ -393,7 +318,7 @@ class Step_1(torch.nn.Module):
         # self.position_encoder = RelativePositionEncoding(args.bert_feature_dim,428)
         #self.position_encoder = AbsolutePositionalEncoding(args,1000)
 
-    def forward(self, bert_output, attention_mask, spans, span_mask, related_spans_tensor, pooler_output,sentence_length):
+    def forward(self,bert_output, attention_mask, spans, span_mask, related_spans_tensor, pooler_output,sentence_length):
         # 调用 span_generator 方法生成 spans_embedding 和 features_mask_tensor 两个变量。
         # 其中 spans_embedding 表示每个 span 的嵌入表示，features_mask_tensor 表示每个 span 是否被标记为有效的情感单元。
         # test = self.opinion_lstm(input_bert_features)
@@ -419,8 +344,8 @@ class Step_1(torch.nn.Module):
         # # input_vector1 = input_vector1.view(span_embedding_3.shape[0], -1)
         span_embedding_1 = torch.clone(spans_embedding)
         span_embedding_2 = torch.clone(spans_embedding)
-        span_embedding_3 = torch.clone(spans_embedding)
-        span_embedding_4 = torch.clone(spans_embedding)
+        # global_rep1,imp_aspect_exist = self.textCNN_A(bert_rsp)
+        # global_rep2,imp_opinion_exist = self.textCNN_O(bert_rsp)
 
         # for i in range(batch_size):
         #     获取当前批次的索引
@@ -431,6 +356,32 @@ class Step_1(torch.nn.Module):
         #     span_embedding_2[i, index] = output2[i].squeeze()
         #     span_embedding_2[i, 0] = output1[i].squeeze()
 
+
+        # for i in range(batch_size):
+        #     # 获取当前批次的索引
+        #     index = torch.sum(span_mask[i], dim=-1) - 1
+        #     # 赋值操作
+        #     # span_embedding_1[i, 0] = input_vector2[i].squeeze()
+        #     span_embedding_1[i, index] = input_vector2[i].squeeze()
+        #     # span_embedding_2[i, index] = output2[i].squeeze()
+        #     span_embedding_2[i, 0] = input_vector1[i].squeeze()
+
+        '''
+        intermediate_a = self.intermediate(pooler_output.clone())
+        intermediate_o = self.intermediate(pooler_output.clone())
+        global_rep1 = self.output_a(intermediate_a,pooler_output.clone())
+        global_rep2 = self.output_o(intermediate_o,pooler_output.clone())
+        imp_aspect_exist = self.imp_asp_classifier(global_rep1)
+        imp_opinion_exist = self.imp_opi_classifier(global_rep2)
+        for i in range(batch_size):
+            # 获取当前批次的索引
+            index = torch.sum(span_mask[i], dim=-1) - 1
+            # 赋值操作
+            span_embedding_1[i, 0] = global_rep1[i].squeeze()
+            span_embedding_1[i, index] = global_rep2[i].squeeze()
+            span_embedding_2[i, index] = global_rep2[i].squeeze()
+            span_embedding_2[i, 0] = global_rep1[i].squeeze()
+        '''
 
         for forward_1_decoder in self.forward_1_decoders:
             forward_layer_output, forward_intermediate_output = forward_1_decoder(span_embedding_1)
@@ -448,43 +399,37 @@ class Step_1(torch.nn.Module):
         # 同样用 sentiment_classification_opinion 层将其映射到具体的情感极性标签上，得到 class_logits_opinion。
         class_logits_opinion = self.sentiment_classification_opinion(span_embedding_2)
 
-        # query1 = span_embedding_3[:, 0, :].unsqueeze(1)
-        # query2 = span_embedding_4[range(span_embedding_4.shape[0]), torch.sum(span_mask, dim=-1) - 1].unsqueeze(1)
-        # # query1 = torch.mean(span_embedding_3,dim=1).unsqueeze(1)
-        # # query2 = torch.mean(span_embedding_4,dim=1).unsqueeze(1)
-        # output1, _ = self.multhead_asp(query1, span_embedding_3, span_embedding_3)
-        # output2, _ = self.multhead_opi(query2, span_embedding_4, span_embedding_4)
-        # imp_aspect_exist = self.imp_asp_classifier(output1.squeeze())
-        # imp_opinion_exist = self.imp_opi_classifier(output2.squeeze())
+        span_embedding_3 = torch.clone(span_embedding_1)
+        span_embedding_4 = torch.clone(span_embedding_2)
+        output1, _ = self.multhead_asp(span_embedding_3, span_mask, pooler_output.unsqueeze(1))
+        output2, _ = self.multhead_opi(span_embedding_4, span_mask, pooler_output.unsqueeze(1))
+        # query1 = span_embedding_3[:, 0, :]
+        # query2 = span_embedding_4[range(span_embedding_4.shape[0]), torch.sum(span_mask, dim=-1) - 1]
 
-        for aspect_imp_decoder in self.aspect_imp_decoders:
-            aspect_imp_layer_output, aspect_imp_intermediate_output = aspect_imp_decoder(span_embedding_3)
-            span_embedding_3 = aspect_imp_layer_output
-
-        for opinion_imp_decoder in self.opinion_imp_decoders:
-            opinion_imp_layer_output, opinion_imp_intermediate_output = opinion_imp_decoder(span_embedding_4)
-            span_embedding_4 = opinion_imp_layer_output
-        output1, _ = self.multhead_asp(span_embedding_3, span_embedding_3, span_embedding_3)
-        output2, _ = self.multhead_opi(span_embedding_4, span_embedding_4, span_embedding_4)
-        input_vector1 = torch.mean(output1,dim=1)
-        input_vector2 = torch.mean(output2,dim=1)
-
+        input_vector1 = torch.mean(output1, dim=1)
+        input_vector2 = torch.mean(output2, dim=1)
+        # output1 = output1.squeeze()
+        # output2 = output2.squeeze()
         imp_aspect_exist = self.imp_asp_classifier(input_vector1)
         imp_opinion_exist = self.imp_opi_classifier(input_vector2)
+        '''
+        span_embedding_3 = torch.clone(span_embedding_1)
+        span_embedding_4 = torch.clone(span_embedding_2)
+        output1, _ = self.multhead_asp(span_embedding_3, span_mask, pooler_output.unsqueeze(1))
+        output2, _ = self.multhead_opi(span_embedding_4, span_mask, pooler_output.unsqueeze(1))
+        # query1 = span_embedding_3[:, 0, :]
+        # query2 = span_embedding_4[range(span_embedding_4.shape[0]), torch.sum(span_mask, dim=-1) - 1]
+
+        input_vector1 = torch.mean(output1,dim=1)
+        input_vector2 = torch.mean(output2,dim=1)
+        # output1 = output1.squeeze()
+        # output2 = output2.squeeze()
+        
+        imp_aspect_exist = self.imp_asp_classifier(input_vector1)
+        imp_opinion_exist = self.imp_opi_classifier(input_vector2)
+        '''
 
 
-
-
-        # 一致性
-        # similarity1 = span_embedding_2[:,0,:]
-        # similarity2 = span_embedding_1[range(span_embedding_2.shape[0]), torch.sum(span_mask, dim=-1) - 1]
-        # imp_aspect_exist = self.imp_asp_classifier1(input_vector1)
-        # imp_opinion_exist = self.imp_opi_classifier1(input_vector2)
-
-        # opinion_lst_rep = self.opinion_lstm(input_vector2)
-
-        # imp_aspect_exist = self.imp_classifier_asp(input_vector1)
-        # imp_opinion_exist = self.imp_classifier_opi(input_vector2)
 
 
         return class_logits_aspect, class_logits_opinion, spans_embedding, span_embedding_1, span_embedding_2, \
@@ -881,188 +826,78 @@ class Pointer_Block(torch.nn.Module):
         return layer_output, attention_result
 
 
-class Step_2_forward0(torch.nn.Module):
-    def __init__(self, args, bert_config):
-        super(Step_2_forward0, self).__init__()
-        self.args = args
-        self.bert_config = bert_config
-        # 循环构建解码器
-        self.forward_opinion_decoder = nn.ModuleList(
-            [Pointer_Block(args, self.bert_config, mask_for_encoder=False) for _ in range(max(1, args.block_num - 1))])
-        # 用于将解码器输出的特征映射到具体的情感极性标签的数字 ID 上
-        self.opinion_docoder2class = nn.Linear(args.bert_feature_dim, len(sentiment2id))
-        self.reverse_decoder = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
-        self.output = Output(bert_config)
-        self.dense = nn.Linear(args.bert_feature_dim*2,args.bert_feature_dim)
-        self.intermediate = Intermediate(bert_config)
-    def forward(self, aspect_spans_embedding, aspect_span_mask, spans_aspect_tensor,opinion_prob,reverse_embedding):
-        # 接收输入参数 aspect_spans_embedding（aspect 的嵌入表示）、
-        # aspect_span_mask（aspect 的掩码）和 spans_aspect_tensor（aspect 的索引位置）
-        '''aspect---> opinion 方向'''
-        # 将aspect_spans_embedding输入到解码器循环解码
-        for opinion_decoder_layer in self.forward_opinion_decoder:
-            opinion_layer_output, opinion_attention = opinion_decoder_layer(aspect_spans_embedding,
-                                                                            aspect_span_mask,
-                                                                            spans_aspect_tensor)
-            aspect_spans_embedding = opinion_layer_output
-
-        reverse_embedding,_ = self.reverse_decoder(reverse_embedding,
-                                                   aspect_span_mask,
-                                                   spans_aspect_tensor)
-
-        reverse_embedding = self.intermediate(reverse_embedding)
-        final_rep = self.output(reverse_embedding,aspect_spans_embedding)
-        # 将最后一个解码器的输出结果作为情感极性关于 opinion 的预测结果，
-        # 使用 opinion_docoder2class 层将其映射到具体的情感极性标签上，得到 opinion_class_logits。
-        # input_rep = torch.cat((aspect_spans_embedding,all_left_tensor,all_right_tensor),dim=0)
-        # opinion_prob = opinion_prob.unsqueeze(-1)
-        # prob_embedding = self.dense(torch.mul(opinion_prob,aspect_spans_embedding))
-        # final_embedding = torch.cat((aspect_spans_embedding, reverse_embedding), dim=-1)
-        # final_embedding = self.dense(final_embedding)
-        opinion_class_logits = self.opinion_docoder2class(final_rep)
-
-
-        return opinion_class_logits
-
 class Step_2_forward(torch.nn.Module):
     def __init__(self, args, bert_config):
         super(Step_2_forward, self).__init__()
         self.args = args
         self.bert_config = bert_config
+        self.cross_att = Attention(bert_config)
         # 循环构建解码器
         self.forward_opinion_decoder = nn.ModuleList(
             [Pointer_Block(args, self.bert_config, mask_for_encoder=False) for _ in range(max(1, args.block_num - 1))])
         # 用于将解码器输出的特征映射到具体的情感极性标签的数字 ID 上
         self.opinion_docoder2class = nn.Linear(args.bert_feature_dim, len(sentiment2id))
+        self.linear = nn.Linear(args.bert_feature_dim*2,args.bert_feature_dim)
+
     def forward(self, aspect_spans_embedding, aspect_span_mask, spans_aspect_tensor,opinion_prob,reverse_embedding):
         # 接收输入参数 aspect_spans_embedding（aspect 的嵌入表示）、
         # aspect_span_mask（aspect 的掩码）和 spans_aspect_tensor（aspect 的索引位置）
         '''aspect---> opinion 方向'''
         # 将aspect_spans_embedding输入到解码器循环解码
+        # masks = (1 - aspect_span_mask) * -1e9
+        #         # # 根据掩码的维度信息确定 attention_masks 的形状
+        #         # masks = masks[:, None, :,None]
+        #         # reverse_spans_embedding = self.cross_att(reverse_embedding,
+        #         #                                         lstm_states =reverse_embedding,
+        #         #                                         encoder_hidden_states=aspect_spans_embedding,
+        #         #                                         encoder_attention_mask=masks)[0]
         for opinion_decoder_layer in self.forward_opinion_decoder:
             opinion_layer_output, opinion_attention = opinion_decoder_layer(aspect_spans_embedding,
                                                                             aspect_span_mask,
                                                                             spans_aspect_tensor)
             aspect_spans_embedding = opinion_layer_output
+        # opinion_class_logits = self.opinion_docoder2class(self.linear(torch.cat((aspect_spans_embedding,reverse_spans_embedding),dim=-1)))
         opinion_class_logits = self.opinion_docoder2class(aspect_spans_embedding)
 
 
         return opinion_class_logits
-
-class Step_2_forward1(torch.nn.Module):
-    def __init__(self, args, bert_config):
-        super(Step_2_forward1, self).__init__()
-        self.args = args
-        self.bert_config = bert_config
-        # 循环构建解码器
-        self.forward_opinion_decoder = nn.ModuleList(
-            [Pointer_Block(args, self.bert_config, mask_for_encoder=False) for _ in range(max(1, args.block_num - 1))])
-        # 用于将解码器输出的特征映射到具体的情感极性标签的数字 ID 上
-        self.opinion_docoder2class = nn.Linear(args.bert_feature_dim, len(sentiment2id))
-        # self.reverse_decoder = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
-        # self.dense = nn.Linear(args.bert_feature_dim,args.bert_feature_dim)
-        self.dense2 = nn.Linear(args.bert_feature_dim*2, args.bert_feature_dim)
-    def forward(self, aspect_spans_embedding, aspect_span_mask, spans_aspect_tensor,opinion_prob,reverse_embedding):
-        # 接收输入参数 aspect_spans_embedding（aspect 的嵌入表示）、
-        # aspect_span_mask（aspect 的掩码）和 spans_aspect_tensor（aspect 的索引位置）
-        '''aspect---> opinion 方向'''
-        # 将aspect_spans_embedding输入到解码器循环解码
-        # aspect_spans_embedding = self.dense(aspect_spans_embedding)
-        aspect_spans_embedding = aspect_spans_embedding + self.dense2(torch.cat((aspect_spans_embedding,reverse_embedding),dim=-1))
-        for opinion_decoder_layer in self.forward_opinion_decoder:
-            opinion_layer_output, opinion_attention = opinion_decoder_layer(aspect_spans_embedding,
-                                                                            aspect_span_mask,
-                                                                            spans_aspect_tensor)
-            aspect_spans_embedding = opinion_layer_output
-        opinion_class_logits = self.opinion_docoder2class(aspect_spans_embedding)
-        return opinion_class_logits
-
-class Step_2_reverse0(torch.nn.Module):
-    def __init__(self, args, bert_config):
-        super(Step_2_reverse0, self).__init__()
-        self.args = args
-        self.bert_config = bert_config
-        # 循环构建解码器
-        self.reverse_aspect_decoder = nn.ModuleList(
-            [Pointer_Block(args, self.bert_config, mask_for_encoder=False) for _ in range(max(1, args.block_num - 1))])
-        # 将解码器输出的特征映射到具体的情感极性标签上
-        self.aspect_docoder2class = nn.Linear(args.bert_feature_dim, len(sentiment2id))
-        self.dense = nn.Linear(args.bert_feature_dim*2,args.bert_feature_dim)
-        self.forward_decoder = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
-        self.output = Output(bert_config)
-        self.intermediate = Intermediate(bert_config)
-    def forward(self, reverse_spans_embedding, reverse_span_mask, all_reverse_opinion_tensor,aspect_prob,forward_embedding):
-        '''opinion---> aspect 方向'''
-        # 将reverse_spans_embedding输入到解码器循环解码
-        for reverse_aspect_decoder_layer in self.reverse_aspect_decoder:
-            aspect_layer_output, aspect_attention = reverse_aspect_decoder_layer(reverse_spans_embedding,
-                                                                                 reverse_span_mask,
-                                                                                 all_reverse_opinion_tensor)
-            reverse_spans_embedding = aspect_layer_output
-        # 将最后一个解码器的输出结果作为情感极性关于 aspect 的预测结果，
-        # 使用 aspect_docoder2class 层将其映射到具体的情感极性标签上，得到 aspect_class_logits。
-        # input_rep = torch.cat((reverse_spans_embedding,all_left_tensor,all_right_tensor),dim=0)
-        # aspect_prob = aspect_prob.unsqueeze(-1)
-        # prob_embedding = self.dense(torch.mul(aspect_prob, reverse_spans_embedding))
-        # final_embedding = torch.cat((reverse_spans_embedding,forward_embedding),dim=-1)
-        # final_embedding = self.dense(final_embedding)
-
-        forward_embedding, _ = self.forward_decoder(forward_embedding,
-                                                    reverse_span_mask,
-                                                    all_reverse_opinion_tensor)
-        forward_embedding = self.intermediate(forward_embedding)
-        final_rep = self.output(forward_embedding,reverse_spans_embedding)
-        aspect_class_logits = self.aspect_docoder2class(final_rep)
-        return aspect_class_logits
 
 class Step_2_reverse(torch.nn.Module):
     def __init__(self, args, bert_config):
         super(Step_2_reverse, self).__init__()
         self.args = args
         self.bert_config = bert_config
+        self.cross_att = Attention(bert_config)
         # 循环构建解码器
         self.reverse_aspect_decoder = nn.ModuleList(
             [Pointer_Block(args, self.bert_config, mask_for_encoder=False) for _ in range(max(1, args.block_num - 1))])
         # 将解码器输出的特征映射到具体的情感极性标签上
         self.aspect_docoder2class = nn.Linear(args.bert_feature_dim, len(sentiment2id))
+        self.linear = nn.Linear(args.bert_feature_dim*2,args.bert_feature_dim)
     def forward(self, reverse_spans_embedding, reverse_span_mask, all_reverse_opinion_tensor,aspect_prob,forward_embedding):
+
         '''opinion---> aspect 方向'''
         # 将reverse_spans_embedding输入到解码器循环解码
+        # masks = (1 - reverse_span_mask) * -1e9
+        # # 根据掩码的维度信息确定 attention_masks 的形状
+        # masks = masks[:, None,: ,None]
+        # forward_spans_embedding = self.cross_att(forward_embedding,
+        # lstm_states=forward_embedding,
+        # encoder_hidden_states=reverse_spans_embedding.clone(),
+        # encoder_attention_mask=masks)[0]
+
+
         for reverse_aspect_decoder_layer in self.reverse_aspect_decoder:
             aspect_layer_output, aspect_attention = reverse_aspect_decoder_layer(reverse_spans_embedding,
                                                                                  reverse_span_mask,
                                                                                  all_reverse_opinion_tensor)
             reverse_spans_embedding = aspect_layer_output
+        # aspect_class_logits = self.aspect_docoder2class(self.linear(torch.cat((reverse_spans_embedding,forward_spans_embedding),dim=-1)))
         aspect_class_logits = self.aspect_docoder2class(reverse_spans_embedding)
         return aspect_class_logits
 
 
-class Step_2_reverse1(torch.nn.Module):
-    def __init__(self, args, bert_config):
-        super(Step_2_reverse1, self).__init__()
-        self.args = args
-        self.bert_config = bert_config
-        # 循环构建解码器
-        self.reverse_aspect_decoder = nn.ModuleList(
-            [Pointer_Block(args, self.bert_config, mask_for_encoder=False) for _ in range(max(1, args.block_num - 1))])
-        # 将解码器输出的特征映射到具体的情感极性标签上
-        self.aspect_docoder2class = nn.Linear(args.bert_feature_dim, len(sentiment2id))
-        # self.dense = nn.Linear(args.bert_feature_dim,args.bert_feature_dim)
-        self.dense2 = nn.Linear(args.bert_feature_dim*2, args.bert_feature_dim)
-        # self.forward_decoder = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
-    def forward(self, reverse_spans_embedding, reverse_span_mask, all_reverse_opinion_tensor,aspect_prob,forward_embedding):
-        '''opinion---> aspect 方向'''
-        # 将reverse_spans_embedding输入到解码器循环解码
-        # reverse_spans_embedding = self.dense(reverse_spans_embedding)
-        reverse_spans_embedding = reverse_spans_embedding + self.dense2(torch.cat((reverse_spans_embedding,forward_embedding),dim=-1))
-        for reverse_aspect_decoder_layer in self.reverse_aspect_decoder:
-            aspect_layer_output, aspect_attention = reverse_aspect_decoder_layer(reverse_spans_embedding,
-                                                                                 reverse_span_mask,
-                                                                                 all_reverse_opinion_tensor)
-            reverse_spans_embedding = aspect_layer_output
 
-        aspect_class_logits = self.aspect_docoder2class(reverse_spans_embedding)
-        return aspect_class_logits
 class Step_3_categories(torch.nn.Module):
     def __init__(self, args):
         super(Step_3_categories, self).__init__()
@@ -1070,25 +905,25 @@ class Step_3_categories(torch.nn.Module):
         #self.fc = nn.Linear(768*2, len(categories))
         #self.dropout = nn.Dropout(0.5)
         categories_class = 13 if args.dataset == "restaurant" else 121
-        # self.category_classifier = nn.Sequential(
-        #     nn.Linear(args.bert_feature_dim * 3, args.bert_feature_dim * 2),
-        #     nn.ReLU(),
-        #     nn.Dropout(args.drop_out),
-        #     nn.Linear(args.bert_feature_dim * 2, args.bert_feature_dim),
-        #     nn.ReLU(),
-        #     nn.Dropout(args.drop_out),
-        #     nn.Linear(args.bert_feature_dim, categories_class)
-        # )
-
-        self.category_classifier1 = nn.Sequential(
+        self.category_classifier = nn.Sequential(
+            nn.Linear(args.bert_feature_dim * 3, args.bert_feature_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(args.drop_out),
             nn.Linear(args.bert_feature_dim * 2, args.bert_feature_dim),
             nn.ReLU(),
             nn.Dropout(args.drop_out),
             nn.Linear(args.bert_feature_dim, categories_class)
         )
+
+        # self.category_classifier1 = nn.Sequential(
+        #     nn.Linear(args.bert_feature_dim * 2, args.bert_feature_dim),
+        #     nn.ReLU(),
+        #     nn.Dropout(args.drop_out),
+        #     nn.Linear(args.bert_feature_dim, categories_class)
+        # )
     def forward(self,spans_embedding,bert_spans_tensor,pairs,span_masks,category_labels=None):
         if category_labels == None:
-            category_logits = self.category_classifier1(pairs)
+            category_logits = self.category_classifier(pairs)
             return category_logits,[]
         else:
             input_rep = []
@@ -1100,33 +935,33 @@ class Step_3_categories(torch.nn.Module):
                 for pair in real_pair:
                     aspect_index = int(pair[0])
                     opinion_index = int(pair[1])
-                    # if aspect_index == 0 and opinion_index != 0:
-                    #     left = torch.mean(spans_embedding[i, 1:opinion_index, :], dim=0) if opinion_index != 1 else spans_embedding[i][0]
-                    #     right = torch.mean(spans_embedding[i, opinion_index:last_index, :],dim=0) if opinion_index != last_index else spans_embedding[i][last_index]
-                    # elif aspect_index != 0 and opinion_index == 0:
-                    #     left = torch.mean(spans_embedding[i, 1:aspect_index, :], dim=0) if aspect_index != 1 else spans_embedding[i][0]
-                    #     right = torch.mean(spans_embedding[i, aspect_index:last_index, :],dim=0) if aspect_index != last_index else spans_embedding[i][last_index]
-                    # elif aspect_index == 0 and opinion_index == 0:
-                    #     left = torch.mean(spans_embedding[i, 1:last_index, :], dim=0)
-                    #     right = torch.mean(spans_embedding[i, 1:last_index, :], dim=0)
-                    # else:
-                    #     left = torch.mean(spans_embedding[i, 1:aspect_index, :], dim=0) if aspect_index != 1 else spans_embedding[i][0]
-                    #     right = torch.mean(spans_embedding[i, aspect_index:last_index, :],dim=0) if aspect_index != last_index else spans_embedding[i][last_index]
+                    if aspect_index == 0 and opinion_index != 0:
+                        left = torch.mean(spans_embedding[i, 1:opinion_index, :], dim=0) if opinion_index != 1 else spans_embedding[i][0]
+                        right = torch.mean(spans_embedding[i, opinion_index:last_index, :],dim=0) if opinion_index != last_index else spans_embedding[i][last_index]
+                    elif aspect_index != 0 and opinion_index == 0:
+                        left = torch.mean(spans_embedding[i, 1:aspect_index, :], dim=0) if aspect_index != 1 else spans_embedding[i][0]
+                        right = torch.mean(spans_embedding[i, aspect_index:last_index, :],dim=0) if aspect_index != last_index else spans_embedding[i][last_index]
+                    elif aspect_index == 0 and opinion_index == 0:
+                        left = torch.mean(spans_embedding[i, 1:last_index, :], dim=0)
+                        right = torch.mean(spans_embedding[i, 1:last_index, :], dim=0)
+                    else:
+                        left = torch.mean(spans_embedding[i, 1:aspect_index, :], dim=0) if aspect_index != 1 else spans_embedding[i][0]
+                        right = torch.mean(spans_embedding[i, aspect_index:last_index, :],dim=0) if aspect_index != last_index else spans_embedding[i][last_index]
 
                     aspect_rep = spans_embedding[i][aspect_index]
                     opinion_index = opinion_index if opinion_index!=0 else last_index
                     opinion_rep = spans_embedding[i][opinion_index]
                     # all_left_list.append(left)
                     # all_right_list.append(right)
-                    # final_rep = torch.unsqueeze(torch.cat((aspect_rep+opinion_rep,left,right),dim=0),0)
-                    final_rep = torch.unsqueeze(torch.cat((aspect_rep,opinion_rep),dim=0),0)
+                    final_rep = torch.unsqueeze(torch.cat((aspect_rep+opinion_rep,left,right),dim=0),0)
+                    # final_rep = torch.unsqueeze(torch.cat((aspect_rep,opinion_rep),dim=0),0)
 
                     if input_rep == []:
                         input_rep = final_rep
                     else:
                         # input_rep= torch.cat((input_rep,final_rep),dim=0)
                         input_rep = torch.cat((input_rep, final_rep), dim=0)
-            category_logits = self.category_classifier1(input_rep)
+            category_logits = self.category_classifier(input_rep)
                 # category_logits = self.dropout(category_logits)
             category_label = torch.cat(category_labels)
             # all_left_tensor = torch.stack(all_left_list)
@@ -1169,37 +1004,19 @@ class imp_classifier(nn.Module):
 
         return output
 
-class TextCNN(torch.nn.Module):
-  def __init__(self,args):
-    super(TextCNN, self).__init__()
-    self.filter_sizes = [2,2,2]
-    self.num_filter_total = 3 * len(self.filter_sizes)
-    self.Weight = torch.nn.Linear(self.num_filter_total, 2, bias=False)
-    self.bias = torch.nn.Parameter(torch.ones([2]))
-    self.filter_list = torch.nn.ModuleList([
-      torch.nn.Conv2d(1, 3, kernel_size=(size, args.bert_feature_dim)) for size in self.filter_sizes
-    ])
+class TextCNN(nn.Module):
+    def __init__(self, hidden_dim, num_classes, kernel_sizes, num_filters):
+        super(TextCNN, self).__init__()
+        self.convs = nn.ModuleList([nn.Conv2d(1, num_filters, (k, hidden_dim)) for k in kernel_sizes])
+        self.fc = nn.Linear(len(kernel_sizes) * num_filters, num_classes)
 
-  def forward(self, x):
-    # x: [bs, seq, hidden]
-    x = x.unsqueeze(1) # [bs, channel=1, seq, hidden]
-
-    pooled_outputs = []
-    for i, conv in enumerate(self.filter_list):
-      h = F.relu(conv(x)) # [bs, channel=1, seq-kernel_size+1, 1]
-      mp = torch.nn.MaxPool2d(
-        kernel_size = (12-self.filter_sizes[i]+1, 1)
-      )
-      # mp: [bs, channel=3, w, h]
-      pooled = mp(h).permute(0, 3, 2, 1) # [bs, h=1, w=1, channel=3]
-      pooled_outputs.append(pooled)
-
-    h_pool = torch.cat(pooled_outputs, len(self.filter_sizes)) # [bs, h=1, w=1, channel=3 * 3]
-    h_pool_flat = torch.reshape(h_pool, [-1, self.num_filter_total])
-
-    output = self.Weight(h_pool_flat) + self.bias # [bs, n_class]
-
-    return output
+    def forward(self, x):
+        x = x.unsqueeze(1)  # (batch_size, 1, sequence_length, hidden_dim)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]  # [(batch_size, num_filters, sequence_length - kernel_size + 1), ...]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]  # [(batch_size, num_filters), ...]
+        x = torch.cat(x, 1)  # (batch_size, len(kernel_sizes) * num_filters)
+        logit = self.fc(x)  # (batch_size, num_classes)
+        return x,logit
 
 class Bert_Blend_CNN(torch.nn.Module):
   def __init__(self,args):
@@ -1268,12 +1085,12 @@ class CustomContrastiveLoss(nn.Module):
     def forward(self, features, labels):
         # 识别类别为1的样本
         class_1_indices = torch.nonzero(labels == 2).squeeze(1)
-
+        class_1_indices = torch.cat((class_1_indices,class_1_indices),dim=0)
 
         # 如果存在类别为1的样本
         if len(class_1_indices) > 0:
             # 对类别为1的样本进行扰动（这里使用dropout）
-            perturbed_features = F.dropout(features[class_1_indices], p=0.3)
+            perturbed_features = F.dropout(features[class_1_indices], p=0.5)
             # 将扰动后的样本与原始特征拼接起来
             features = torch.cat((features, perturbed_features), dim=0)
             # 更新标签
@@ -1408,13 +1225,13 @@ def Loss(gold_aspect_label, pred_aspect_label, gold_opinion_label, pred_opinion_
         # loss = as_2_op_loss + op_2_as_loss + kl_loss
         # loss = as_2_op_loss + op_2_as_loss + category_loss + args.kl_loss_weight * kl_loss + imp_aspect_loss + imp_opinion_loss
         loss = as_2_op_loss + op_2_as_loss + category_loss + imp_aspect_loss + \
-               imp_opinion_loss + args.kl_loss_weight * kl_loss + 0.5* con_opi_loss+ 0.7*con_asp_loss
+               imp_opinion_loss + args.kl_loss_weight * kl_loss + con_asp_loss + con_opi_loss
     else:
-        loss = as_2_op_loss + op_2_as_loss + imp_aspect_loss + imp_opinion_loss+category_loss
+        loss = as_2_op_loss + op_2_as_loss + imp_aspect_loss + imp_opinion_loss+category_loss+ con_asp_loss + con_opi_loss
         kl_loss = 0
 
 
-    return loss,  args.kl_loss_weight * kl_loss,as_2_op_loss,op_2_as_loss,imp_aspect_loss,imp_opinion_loss,category_loss, 0.7* con_asp_loss, 0.5* con_opi_loss
+    return loss,  args.kl_loss_weight * kl_loss,as_2_op_loss,op_2_as_loss,imp_aspect_loss,imp_opinion_loss,category_loss,con_asp_loss,con_opi_loss
 
 
 

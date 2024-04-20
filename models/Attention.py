@@ -81,9 +81,9 @@ class Attention(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.self = SelfAttention(config)
-        self.gcn = GCN(config)
+        # self.gcn = GCN(config)
         self.output = SelfOutput(config)
-        self.aggrate = nn.Linear(config.hidden_size*2,config.hidden_size)
+        # self.aggrate = nn.Linear(config.hidden_size*2,config.hidden_size)
         # self.lstm = nn.LSTM(input_size=config.hidden_size, hidden_size=config.hidden_size, num_layers=2, batch_first=True)
         # self.dense = nn.Linear(128, config.hidden_size)
 

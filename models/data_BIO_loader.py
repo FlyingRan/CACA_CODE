@@ -501,40 +501,38 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         temp_opi=[]
         for asp_span,opi_sen_list in aspect_reverse.items():
             for opi_sen in opi_sen_list:
-                if opi_sen[0] == (-1,-2) and temp_flag!=1:
+                if opi_sen[0] == (-1,-2):
                     temp_asp.append(1)
                     aspect_polarity_label.append(sentiment2id[opi_sen[1]])
                     temp_flag = 1
-                    break;
-            if temp_flag == 0:
-                temp_asp.append(0)
-                aspect_polarity_label.append(sentiment2id[opi_sen[1]])
+                else:
+                    temp_asp.append(0)
+                    aspect_polarity_label.append(sentiment2id[opi_sen[1]])
             temp_flag = 0
         # assert len(opinion) == len(sample['imp_asp'])
 
         temp_flag = 0
         for opi_span, asp_sen_list in opinion.items():
             for asp_sen in asp_sen_list:
-                if asp_sen[0] == (-1, -2) and temp_flag != 1:
+                if asp_sen[0] == (-1, -2):
                     temp_opi.append(1)
                     opinion_polarity_label.append(sentiment2id[asp_sen[1]])
                     temp_flag = 1
-                    break;
-            if temp_flag == 0:
-                temp_opi.append(0)
-                opinion_polarity_label.append(sentiment2id[asp_sen[1]])
+                else:
+                    temp_opi.append(0)
+                    opinion_polarity_label.append(sentiment2id[asp_sen[1]])
             temp_flag = 0
             #aspect_polarity_label.append(sentiment2id[asp_sentiment])
 
         if all(x in temp_asp for x in [0, 1]):
-            sample['imp_asp'].append(2)
+            sample['imp_asp'].append(1)
         elif 1 in temp_asp:
             sample['imp_asp'].append(1)
         else:
             sample['imp_asp'].append(0)
 
         if all(x in temp_opi for x in [0, 1]):
-            sample['imp_opi'].append(2)
+            sample['imp_opi'].append(1)
         elif 1 in temp_opi:
             sample['imp_opi'].append(1)
         else:
