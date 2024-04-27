@@ -179,14 +179,14 @@ class SelfAttention(nn.Module):
 
         # context_layer = self.gcn(attention_probs,input_features)
         attention_probs = self.dropout(attention_probs)
-
+        # print(1/0)
         context_layer = torch.matmul(attention_probs, value_layer)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
 
-        outputs = (context_layer,)
+        outputs = (context_layer,attention_probs)
         return outputs
 
 class SelfOutput(nn.Module):

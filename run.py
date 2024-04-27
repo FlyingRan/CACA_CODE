@@ -3,26 +3,24 @@ import os
 import argparse
 import tqdm
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AdamW, BertModel, get_linear_schedule_with_warmup
-from models.data_BIO_loader import load_data, load_data1,DataTterator,DataTterator2
+from transformers import AdamW, BertModel, get_linear_schedule_with_warmup,AutoModel,AutoTokenizer,AutoConfig
+from models.data_BIO_loader import load_data, load_data1,DataTterator2
 from models.model import stage_2_features_generation1,Step_1, Step_2_forward, Step_2_reverse, Loss,Step_3_categories,eval_loss
 from models.Metric import Metric
 from models.eval_features import unbatch_data
 from log import logger
-from thop import profile, clever_format
 import time
 import sys
 import codecs
-import GPUtil
-from itertools import groupby
-import numpy as np
-from torch.utils.tensorboard import SummaryWriter
+import random
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+# os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 sentiment2id = {'none': 3, 'positive': 2, 'negative': 0, 'neutral': 1}
 
@@ -185,7 +183,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
         tensor_2d_a_label = None
         tensor_2d_o_label = None
         origin_rep = None
-
+        # set_seed(args)
         for j in range(dataset.batch_count):
             tokens_tensor, attention_mask, bert_spans_tensor, spans_mask_tensor, spans_ner_label_tensor, \
             spans_aspect_tensor, spans_opinion_label_tensor, reverse_ner_label_tensor, reverse_opinion_tensor, \
@@ -251,11 +249,6 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             '''真实结果合成'''
             gold_instances.append(dataset.instances[j])
             result = []
-            bool_mask = spans_mask_tensor.bool()
-            masked_logits = opinion_class_logits.masked_fill(~bool_mask.unsqueeze(-1), float('-inf'))
-            masked_logits_asp = aspect_class_logits.masked_fill(~bool_mask.unsqueeze(-1), float('-inf'))
-            opinion_soft = F.softmax(masked_logits, dim=-2)[:, :, 1]
-            aspect_soft = F.softmax(masked_logits_asp, dim=-2)[:, :, 1]
 
             if torch.nonzero(pred_aspect_logits, as_tuple=False).shape[0] !=0\
                     and torch.nonzero(reverse_pred_stage1_logits, as_tuple=False).shape[0] != 0:
@@ -313,7 +306,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                                                  dim=0) if aspect_index != last_index else \
                                 spans_embedding[batch][last_index]
                         input_rep.append(torch.cat((aspect_rep + opinion_rep, left, right), dim=0))
-                        # input_rep.append(aspect_rep+opinion_rep)
+                        # input_rep.append(torch.cat((aspect_rep,opinion_rep), dim=0))
                     input_rep = torch.stack(input_rep)
                     # # 使用广播计算笛卡尔积并拼接
                     # expanded_aspect = aspect_rep.unsqueeze(1)
@@ -363,12 +356,12 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
 
                 is_aspect = True
                 _, all_span_aspect_tensor, all_bert_embedding, all_attention_mask, all_spans_embedding, step2_forward_embedding,all_span_mask,\
-                    all_left_tensor,all_right_tensor,opinion_prob_tensor= stage_2_features_generation1(
+                    all_left_tensor,all_right_tensor= stage_2_features_generation1(
                     bert_features.last_hidden_state, attention_mask, bert_spans_tensor, spans_mask_tensor,
-                    forward_embedding,reverse_embedding,pred_span_aspect_tensor,is_aspect,asp_rep,opinion_soft)
+                    forward_embedding,reverse_embedding,pred_span_aspect_tensor,is_aspect,asp_rep)
 
                 opinion_class_logits1 = step_2_forward(all_spans_embedding, all_span_mask,
-                                                                all_span_aspect_tensor,opinion_prob_tensor,step2_forward_embedding)
+                                                                all_span_aspect_tensor,step2_forward_embedding)
                 #step1. 找到所有的opinion_index及其表征
                 #step2. 遍历aspect个数，逐个拼接opinion表征，最后输入到step3_category中
                 #step3. 添加到result
@@ -376,70 +369,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
 
 
                 aspect_imp_result = []
-
-                '''
-                for index in imp_index:
-                    batch_num = pred_aspect_spans[int(index)].squeeze()[0]
-                    aspect_span_num = bert_spans_tensor[batch_num, pred_aspect_spans[index].squeeze()[1], :2]
-                    opinion_span_num = bert_spans_tensor[batch_num, torch.sum(all_span_mask[index]).item()-1, :2]
-                    cat_input_rep = all_span_aspect_tensor[index].squeeze() + all_spans_embedding[index].squeeze(0)[torch.sum(all_span_mask[index]).item()-1]
-                    cat_logits, _ = step_3_category(spans_embedding, bert_spans_tensor, cat_input_rep)
-                    cat_result = torch.argmax(F.softmax(cat_logits, dim=0), dim=0)
-                    aspect_imp_result.append([int(batch_num),aspect_span_num,opinion_span_num,int(cat_result),
-                                              int(aspect_imp_polarity[index])])
-                '''
                 aspect_imp_opinion_result.append(aspect_imp_result)
-                '''
-                output_values, output_indices = torch.max(opinion_class_logits1, dim=-1)
-                opinion_list = []
-                batch_list = []
-                for k,row in enumerate(output_indices):
-                    non_three_indices_row = torch.nonzero(row != 3, as_tuple=False)
-                    opinion_list.append(non_three_indices_row)
-                    batch_list.append(int(pred_aspect_spans[k][0][0]))
-                for i, row_indices in enumerate(opinion_list):
-                    # print(f"hhh第{i + 1}行不等于3的索引位置：")
-                    if row_indices.size(0) == 0:
-                        continue
-                    opinion_rep = []
-                    left = []
-                    right = []
-                    k = 0
-                    last = torch.sum(all_span_mask[i]).item() - 1
-                    for l,index in enumerate(row_indices):
-                        # print(index.item())
-                        # print(spans_embedding[0][index.item()])
-                        if index >= torch.sum(all_span_mask[i]).item():
-                            break
-                        b = int(pred_aspect_spans[i][0][0])
-                        opinion_rep.append(spans_embedding[b][index.item()])
-                        # opinion_rep.append(all_spans_embedding[i][index.item()])
-                        value = index.item()
-                        if index.item() == last:
-                            value = value-1
-                        elif index.item() == 0:
-                            value = value+1
-                        else:
-                            pass
-                        left.append(torch.max(spans_embedding[b,0:value,:],dim=0)[0])
-                        right.append(torch.max(spans_embedding[b, value:last, :],dim=0)[0])
-                        k +=1
-
-                    if opinion_rep !=[]:
-                        opinion_rep = torch.stack(opinion_rep)
-                        left = torch.stack(left)
-                        right = torch.stack(right)
-                        aspect_rep = all_span_aspect_tensor[i][0].clone()
-                        aspect_repx3 = aspect_rep.expand(k,-1).to(args.device)
-                        final_rep = torch.cat((aspect_repx3+opinion_rep,left,right),dim=1)
-                        # final_rep = aspect_repx3 + opinion_rep
-                        category_logits, _ = step_3_category(spans_embedding, bert_spans_tensor, final_rep,spans_mask_tensor)
-                        pred_category_logits = torch.argmax(F.softmax(category_logits, dim=1), dim=1)
-                        for j,index in enumerate(row_indices):
-                            if index >= torch.sum(all_span_mask[i]).item():
-                                break
-                            result.append([int(pred_aspect_spans[i][0][1]),int(index),int(pred_category_logits[j]),int(pred_aspect_spans[i][0][0])])
-                '''
 
 
                 forward_stage1_pred_aspect_result.append(pred_span_aspect_tensor)
@@ -473,16 +403,8 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                         reverse_span_opinion_tensor = reverse_opinion_tensor_unspilt
                     else:
                         reverse_span_opinion_tensor = torch.cat((reverse_span_opinion_tensor, reverse_opinion_tensor_unspilt), dim=0)
-                # __, all_reverse_opinion_tensor, reverse_bert_embedding, reverse_attention_mask, \
-                # reverse_spans_embedding, reverse_span_mask = stage_2_features_generation(bert_features.last_hidden_state,
-                #                                                                          attention_mask,
-                #                                                                          bert_spans_tensor,
-                #                                                                          spans_mask_tensor,
-                #                                                                          spans_embedding,
-                #                                                                          reverse_span_opinion_tensor)
-                is_aspect=False
                 __, all_reverse_opinion_tensor, reverse_bert_embedding, reverse_attention_mask, \
-                reverse_spans_embedding, step2_reverse_embedding,reverse_span_mask,all_left_tensor,all_right_tensor,aspect_prob_tensor = stage_2_features_generation1(
+                reverse_spans_embedding, step2_reverse_embedding,reverse_span_mask,all_left_tensor,all_right_tensor = stage_2_features_generation1(
                     bert_features.last_hidden_state,
                     attention_mask,
                     bert_spans_tensor,
@@ -491,27 +413,13 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                     forward_embedding,
                     reverse_span_opinion_tensor,
                     is_aspect,
-                    opi_rep,
-                    aspect_soft
+                    opi_rep
                     )
 
-                reverse_aspect_class_logits = step_2_reverse(reverse_spans_embedding,reverse_span_mask,all_reverse_opinion_tensor,aspect_prob_tensor,step2_reverse_embedding)
-
-
-
+                reverse_aspect_class_logits = step_2_reverse(reverse_spans_embedding,reverse_span_mask,all_reverse_opinion_tensor,step2_reverse_embedding)
 
                 opinion_imp_result = []
-                '''
-                for index in imp_index:
-                    batch_num = reverse_pred_opinion_spans[index].squeeze()[0]
-                    opinion_span_num = bert_spans_tensor[batch_num, reverse_pred_opinion_spans[index].squeeze()[1], :2]
-                    aspect_span_num = bert_spans_tensor[batch_num,0, :2]
-                    cat_input_rep = all_reverse_opinion_tensor[index].squeeze() + reverse_spans_embedding[index].squeeze()[torch.sum(reverse_span_mask[index]).item()-1]
-                    cat_logits, _ = step_3_category(spans_embedding, bert_spans_tensor, cat_input_rep)
-                    cat_result = torch.argmax(F.softmax(cat_logits, dim=0), dim=0)
-                    opinion_imp_result.append([int(batch_num),aspect_span_num,opinion_span_num,int(cat_result),
-                                               int(opinion_imp_polarity[index])])
-                '''
+
                 opinion_imp_aspect_result.append(opinion_imp_result)
 
 
@@ -520,50 +428,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
                 for row in output_indices:
                     non_three_indices_row = torch.nonzero(row != 3, as_tuple=False)
                     aspect_list.append(non_three_indices_row)
-                '''
-                for i, row_indices in enumerate(aspect_list):
-                    # print(f"第{i + 1}行不等于3的索引位置：")
-                    if row_indices.size(0) == 0:
-                        continue
-                    aspect_rep = []
-                    k=0
-                    left = []
-                    right = []
-                    last = torch.sum(reverse_span_mask[i]).item() - 1
-                    for l,index in enumerate(row_indices):
-                        # print(index.item())
-                        # print(spans_embedding[0][index.item()])
-                        if index >= torch.sum(reverse_span_mask[i]).item():
-                            break
-                        b= int(reverse_pred_opinion_spans[i][0][0])
-                        aspect_rep.append(spans_embedding[b][index.item()])
-                        # aspect_rep.append(reverse_spans_embedding[i][index.item()])
-                        value = index.item()
-                        if index.item() == last:
-                            value = value-1
-                        elif index.item() == 0:
-                            value = value+1
-                        else:
-                            pass
-                        left.append(torch.max(spans_embedding[b, 0:value, :], dim=0)[0])
-                        right.append(torch.max(spans_embedding[b, value:last, :], dim=0)[0])
-                        k += 1
-                    if aspect_rep != []:
-                        aspect_rep = torch.stack(aspect_rep)
-                        left = torch.stack(left)
-                        right = torch.stack(right)
 
-                        opinion_rep = all_reverse_opinion_tensor[i][0].clone()
-                        opinion_repx3 = opinion_rep.expand(k, -1).to(args.device)
-                        final_rep = torch.cat((aspect_rep+opinion_repx3,left,right),dim=1)
-                        # final_rep = aspect_rep + opinion_repx3
-                        category_logits, _ = step_3_category(spans_embedding, bert_spans_tensor, final_rep,spans_mask_tensor)
-                        pred_category_logits = torch.argmax(F.softmax(category_logits, dim=1), dim=1)
-                        for j, index in enumerate(row_indices):
-                            if index >= torch.sum(reverse_span_mask[i]).item():
-                                break
-                            result.append([int(index), int(reverse_pred_opinion_spans[i][0][1]), int(pred_category_logits[j]),int(reverse_pred_opinion_spans[i][0][0])])
-                    '''
                 reverse_stage1_pred_opinion_result.append(reverse_span_opinion_tensor)
                 reverse_stage1_pred_opinion_with_sentiment.append(reverse_pred_stage1_logits)
                 reverse_stage1_pred_opinion_sentiment_logit.append(reverse_pred_sentiment_ligits)
@@ -588,10 +453,11 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
         tensor_2d_o = tensor_2d_o.cpu().numpy()
         tensor_2d_a_label = tensor_2d_a_label.cpu().numpy()
         tensor_2d_o_label = tensor_2d_o_label.cpu().numpy()
+        '''
         tensor_2d_asp = TSNE(n_components=2,random_state=2024).fit_transform(tensor_2d_a)
         class0 = tensor_2d_asp[tensor_2d_a_label == 0]
         class1 = tensor_2d_asp[tensor_2d_a_label == 1]
-        '''
+        
         plt.scatter(class0[:, 0], class0[:, 1], label='without implicit aspect',c='lightgreen',edgecolors='black', linewidth=1)
         plt.scatter(class1[:, 0], class1[:, 1], label='with implicit aspect',c='cornflowerblue',edgecolors='black', linewidth=1)
         # plt.xlabel('Dimension 1')
@@ -656,9 +522,26 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
     return quad_result,opinion_imp_list
 
 
+def set_seed(args):
+    random.seed(42)
+    np.random.seed(42)
+
+    # 设置随机种子
+    torch.manual_seed(42)
+    # 在使用GPU时，也要设置其随机种子
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(42)
+        torch.cuda.manual_seed_all(42)
+    # torch.backends.cudnn.benchmark = False
+    # torch.backends.cudnn.deterministic = True
 def train(args):
+
     torch.cuda.current_device()
     torch.cuda._initialized = True
+    # set_seed(args)
+
+    # torch.backends.cudnn.enabled = False
+
     if args.dataset == 'restaurant':
         train_path = "./datasets/Restaurant-ACOS/rest16_quad_train.tsv"
         test_path = "./datasets/Restaurant-ACOS/rest16_quad_test.tsv"
@@ -677,9 +560,10 @@ def train(args):
     logger.info('测试集加载完成')
     print('-------------------------------')
 
-    Bert = BertModel.from_pretrained(args.init_model,output_hidden_states=True)
-
-    bert_config = Bert.config
+    # Bert = BertModel.from_pretrained(args.init_model,output_hidden_states=True)
+    bert_config = AutoConfig.from_pretrained(args.init_model)
+    Bert = AutoModel.from_pretrained(args.init_model, config=bert_config)
+    # bert_config = Bert.config
     Bert.to(args.device)
     # 获取bert
     bert_param_optimizer = list(Bert.named_parameters())
@@ -709,8 +593,7 @@ def train(args):
     ]
 
 
-    optimizer = AdamW(training_param_optimizer, lr=args.learning_rate,weight_decay=0.001)
-    # imp_optimizer = AdamW(training_param_optimizer, lr=args.learning_rate, weight_decay=0.05)
+    optimizer = AdamW(training_param_optimizer, lr=args.learning_rate,weight_decay=0.0001)
     if args.muti_gpu:
         Bert = torch.nn.DataParallel(Bert)
         step_1_model = torch.nn.DataParallel(step_1_model)
@@ -719,6 +602,7 @@ def train(args):
         step_3_category = torch.nn.DataParallel(step_3_category)
 
     if args.mode == 'train':
+        set_seed(args)
         print('-------------------------------')
         logger.info('开始加载训练与验证集')
         print('开始加载训练与验证集')
@@ -754,9 +638,7 @@ def train(args):
             logger.info(('Epoch:{}'.format(i)))
 
             for j in tqdm.trange(trainset.batch_count):
-            # for j in range(trainset.batch_count):
-                if j == 1:
-                    start = time.time()
+                # set_seed(args)
                 optimizer.zero_grad()
                 # imp_optimizer.zero_grad()
                 tokens_tensor, attention_mask, bert_spans_tensor, spans_mask_tensor, spans_ner_label_tensor, \
@@ -787,48 +669,41 @@ def train(args):
 
                 bool_mask = spans_mask_tensor.bool()
 
-                masked_logits = opinion_class_logits.masked_fill(~bool_mask.unsqueeze(-1),float('-inf'))
-                masked_logits_asp = aspect_class_logits.masked_fill(~bool_mask.unsqueeze(-1),float('-inf'))
-                opinion_soft = F.softmax(masked_logits,dim=-2)[:,:,1]
-                aspect_soft = F.softmax(masked_logits_asp,dim=-2)[:,:,1]
+
                 category_labels = [t[4][0] for t in sentence_length]
                 pairs = [t[3] for t in sentence_length]
                 category_logits,category_label = step_3_category(spans_embedding,bert_spans_tensor,pairs,spans_mask_tensor,category_labels)
                 is_aspect = True
+                category_label = category_label.to(args.device)
                 '''Batch更新'''
                 # 21X420                     21 1 768           21 100 768           21 100        21 420 768    21 420
                 # 从输入的 BERT 特征、注意力掩码、span 序列和 span 掩码中生成经过处理后的特征
                 all_span_opinion_tensor, all_span_aspect_tensor, all_bert_embedding, all_attention_mask, \
-                all_spans_embedding, step2_forward_embedding,all_span_mask,all_left_forward_tensor,all_right_forward_tensor,opinion_prob_tensor = stage_2_features_generation1(bert_output.last_hidden_state,
+                all_spans_embedding, step2_forward_embedding,all_span_mask,all_left_forward_tensor,all_right_forward_tensor = stage_2_features_generation1(bert_output.last_hidden_state,
                                                                              attention_mask, bert_spans_tensor,
                                                                              spans_mask_tensor, forward_embedding,reverse_embedding,
                                                                              spans_aspect_tensor,
-                                                                                is_aspect,asp_rep,opinion_soft,
+                                                                                is_aspect,asp_rep,
                                                                              spans_opinion_label_tensor,
-
                                                                                  )
                 is_aspect = False
                 all_reverse_aspect_tensor, all_reverse_opinion_tensor, reverse_bert_embedding, reverse_attention_mask, \
-                reverse_spans_embedding, step2_reverse_embedding,reverse_span_mask,all_left_reverse_tensor,all_right_reverse_tensor,aspect_prob_tensor = stage_2_features_generation1(bert_output.last_hidden_state,
+                reverse_spans_embedding, step2_reverse_embedding,reverse_span_mask,all_left_reverse_tensor,all_right_reverse_tensor = stage_2_features_generation1(bert_output.last_hidden_state,
                                                                                      attention_mask, bert_spans_tensor,
                                                                                      spans_mask_tensor, reverse_embedding,
                                                                                      forward_embedding,
                                                                                      reverse_opinion_tensor,
                                                                                         is_aspect,opi_rep,
-                                                                                     aspect_soft,reverse_aspect_label_tensor,
+                                                                                     reverse_aspect_label_tensor,
                                                                                      )
 
                 # aspect->opinion
                 step_2_opinion_class_logits= \
-                    step2_forward_model(all_spans_embedding, all_span_mask, all_span_aspect_tensor,opinion_prob_tensor,step2_forward_embedding)
+                    step2_forward_model(all_spans_embedding, all_span_mask, all_span_aspect_tensor,step2_forward_embedding)
                 # opinion->aspect
                 step_2_aspect_class_logits= step2_reverse_model(reverse_spans_embedding,
-                    reverse_span_mask, all_reverse_opinion_tensor,aspect_prob_tensor,step2_reverse_embedding)
+                    reverse_span_mask, all_reverse_opinion_tensor,step2_reverse_embedding)
 
-                forward_softmax = cal_softmax(step_2_opinion_class_logits,all_span_mask)
-                reverse_softmax = cal_softmax(step_2_aspect_class_logits,reverse_span_mask)
-                exist_aspect = spans_ner_label_tensor[:,0]
-                exist_opinion = reverse_ner_label_tensor[range(reverse_ner_label_tensor.shape[0]), torch.sum(spans_mask_tensor, dim=-1) - 1]
                 # 计算loss和KL loss
 
                 loss, kl_loss,as_2_op_loss,op_2_as_loss,imp_aspect_loss,imp_opinion_loss,category_loss,con_asp_loss,con_opi_loss = \
@@ -837,33 +712,18 @@ def train(args):
                                      cnn_spans_mask_tensor,reverse_span_mask,spans_embedding, related_spans_tensor,category_label,category_logits,
                                      imp_asp_label_tensor,imp_opi_label_tensor,imp_aspect_exist, imp_opinion_exist,sentence_length,asp_rep,opi_rep,args)
 
-                # loss, kl_loss = Loss(spans_ner_label_tensor, aspect_class_logits, all_span_opinion_tensor,
-                #                      step_2_opinion_class_logits, spans_mask_tensor, all_span_mask,
-                #                      reverse_ner_label_tensor, opinion_class_logits, all_reverse_aspect_tensor,
-                #                      step_2_aspect_class_logits,
-                #                      cnn_spans_mask_tensor, reverse_span_mask, spans_embedding, related_spans_tensor,
-                #                      category_label, category_logits,
-                #                      exist_aspect, exist_opinion, imp_aspect_exist, imp_opinion_exist, sentence_length,
-                #                      opinion_prob_tensor, forward_softmax,
-                #                      aspect_prob_tensor, reverse_softmax, imp_aspect_exist1,imp_opinion_exist1, args)
 
-                # if args.accumulation_steps > 1:
-                #     loss = loss / args.accumulation_steps
-                #     loss.backward()
-                #     if ((j + 1) % args.accumulation_steps) == 0:
-                #         optimizer.step()
-                #         if args.whether_warm_up:
-                #             scheduler.step()
-                # else:
-                #     loss.backward()
-                #     optimizer.step()
-                #     if args.whether_warm_up:
-                #         scheduler.step()
-                loss.backward()
-                optimizer.step()
-                # con_loss = 0.2*con_asp_loss+0.2*con_opi_loss
-                # con_loss.backward()
-                # imp_optimizer.step()
+                if args.accumulation_steps > 1:
+                    loss = loss / args.accumulation_steps
+                    loss.backward()
+                    if ((j + 1) % args.accumulation_steps) == 0 or (j+1)==trainset.batch_count:
+                        nn.utils.clip_grad_norm_(list(step_1_model.parameters())+list(step2_forward_model.parameters())+
+                                                 list(step2_reverse_model.parameters())+list(step_3_category.parameters()), max_norm=1, norm_type=2)
+                        optimizer.step()
+                else:
+                    loss.backward()
+                    optimizer.step()
+
                 tot_loss += loss.item()
                 tot_kl_loss += kl_loss
                 bir_loss_ao += as_2_op_loss.item()
@@ -888,11 +748,7 @@ def train(args):
 
             bir_loss_ao,bir_loss_oa,tot_imploss_o,tot_imploss_a,tot_cat_loss = 0,0,0,0,0
             tot_con_a_loss,tot_con_o_loss=0,0
-            # print('Evaluating, please wait')
-            # aspect_result, opinion_result, apce_result, pair_result, triplet_result = eval(Bert, step_1_model,
-            #                                                                                step2_forward_model,
-            #                                                                                step2_reverse_model,
-            #                                                                                devset, args)
+
             quad_result,opinion_imp_list = eval(Bert, step_1_model, step2_forward_model, step2_reverse_model,step_3_category, testset, args)
             if opinion_imp_list != []:
                 opinion_all_list.append(opinion_imp_list)
@@ -929,9 +785,9 @@ def train(args):
                 opinion_all_list = []
             if quad_result[2] > best_quad_f1:
                 if args.dataset == "laptop":
-                    limit = 0.41
+                    limit = 0.42
                 else:
-                    limit = 0.57
+                    limit = 0.60
                 if quad_result[2]>limit:
                     model_path = args.model_dir +args.dataset +'_'+ str(quad_result[2]) + '.pt'
 
@@ -965,7 +821,7 @@ def train(args):
 
     model_path = args.model_dir + args.dataset + '_' +str(best_quad_f1) + '.pt'
     # model_path = args.model_dir + 'restaurant_0.611764705882353.pt'
-    # model_path = args.model_dir + 'laptop_0.4200995925758262.pt'
+    # model_path = args.model_dir + 'restaurant_0.6225490196078431.pt'
     # model_path = args.model_dir + 'restaurant_0.5956497490239823.pt'
     # model_path = args.model_dir + 'restaurant_0.59826.pt'
     # model_path = args.model_dir + 'laptop_0.426367461430575.pt'
@@ -992,8 +848,8 @@ def main():
     parser = argparse.ArgumentParser(description="Train scrip")
     parser.add_argument('--model_dir', type=str, default="savemodels/", help='model path prefix')
     parser.add_argument('--device', type=str, default="cuda", help='cuda or cpu')
-    parser.add_argument("--init_model", default="pretrained_models/bert-base-uncased", type=str, required=False,help="Initial model.")
-    parser.add_argument("--init_vocab", default="pretrained_models/bert-base-uncased", type=str, required=False,help="Initial vocab.")
+    parser.add_argument("--init_model", default="pretrained_models/deberta-v3", type=str, required=False,help="Initial model.bert-base-uncased")
+    parser.add_argument("--init_vocab", default="pretrained_models/deberta-v3", type=str, required=False,help="Initial vocab.")
 
     parser.add_argument("--bert_feature_dim", default=768, type=int, help="feature dim for bert")
     parser.add_argument("--do_lower_case", default=True, action='store_true',help="Set this flag if you are using an uncased model.")
@@ -1003,15 +859,15 @@ def main():
     parser.add_argument('--special_token', default='[N]')
     parser.add_argument("--max_span_length", type=int, default=12, help="")
     parser.add_argument("--embedding_dim4width", type=int, default=200,help="")
-    parser.add_argument("--task_learning_rate", type=float, default=0.0001)
+    parser.add_argument("--task_learning_rate", type=float, default=1e-4)
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--muti_gpu", default=True)
-    parser.add_argument('--epochs', type=int, default=320, help='training epoch number')
+    parser.add_argument("--muti_gpu", default=False)
+    parser.add_argument('--epochs', type=int, default=250, help='training epoch number')
     parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2024, help="")
     '''修改了数据格式'''
-    parser.add_argument("--dataset", default="laptop", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
+    parser.add_argument("--dataset", default="restaurant", type=str, choices=["restaurant", "laptop"],help="specify the dataset")
     parser.add_argument('--mode', type=str, default="train", choices=["train", "test"], help='option: train, test')
     '''对相似Span进行attention'''
     # 分词中仅使用结果的首token
