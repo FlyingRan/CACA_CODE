@@ -1,32 +1,51 @@
+# food was good not great not worth the wait or another visit	0,1 FOOD#QUALITY 1 2,5	-1,-1 RESTAURANT#GENERAL 0 5,7
+# Food was good not great not worth the wait or another visit####[['Food', 'food quality', 'neutral', 'good not great not worth the wait or another visit']]
 
-# To apply DeBERTa to your existing code, you need to make two changes to your code,
-# 1. change your model to consume DeBERTa as the encoder
-from DeBERTa import deberta
-import torch
-import torch
-from DeBERTa import deberta
-from transformers import AutoConfig, AutoModel,AutoTokenizer
+def transfom_data(data):
+    sentence = data.split('####')[0].lower()
+    quad_arr = data.split('####')[1].lower()
+    cleaned_string = eval(quad_arr)
+    result = sentence
+    sen_map = {0:''}
+    for i,quad in enumerate(cleaned_string):
+        aspect = quad[0]
+        category = quad[1]
+        polarity = quad[2]
+        opinion = quad[3]
+        # 处理aspect，opinion，找到对应的索引下标
+        a1,a2 = find_word_substring_positions(sentence,aspect)
+        o1,o2 = find_word_substring_positions(sentence,opinion)
+        c = category.upper().replace(' ','#')
+        if polarity == 'positive':
+            p=2
+        elif polarity == 'negative':
+            p=0
+        elif polarity == 'neutral':
+            p=1
+        # print(a1,a2,o1,o2,c,p)
+        result += '\t' + str(a1) + ',' +str(a2) + ' ' + c + ' ' + str(p) + ' ' + str(o1) + ',' + str(o2)
+    return result
+def find_word_substring_positions(string, substring):
+    words = string.split()
+    subwords = substring.split()
+    start_index = None
+    end_index = None
+    for i in range(len(words)):
+        if words[i:i+len(subwords)] == subwords:
+            start_index = i
+            end_index = i + len(subwords)
+            break
+    if start_index is None:
+        return None, None  # 如果子串不存在于字符串中，返回 None
+    return start_index, end_index
 
 
-
-
-# 2. Change your tokenizer with the tokenizer built-in DeBERta
-model_path = "pretrained_models/deberta-v3/"
-config = AutoConfig.from_pretrained(model_path)
-model = AutoModel.from_pretrained(model_path, config=config)
-
-tokenizers = AutoTokenizer.from_pretrained(model_path)
-data=['this is first sushi unresponsive','this is second sentence']
-max_seq_len = 512
-tokens = tokenizers.tokenize("unresponsive",is_split_into_words=True)
-inputs = tokenizers(data,padding=True, truncation=True, return_tensors="pt",is_split_into_words=True)
-# Truncate long sequence
-# tokens = tokens[:max_seq_len -2]
-print(inputs)
-# Add special tokens to the `tokens`
-outputs = model(**inputs)
-print(outputs.last_hidden_state.shape)
-# features = {
-# 'input_ids': torch.tensor(input_ids, dtype=torch.int),
-# 'input_mask': torch.tensor(input_mask, dtype=torch.int)
-# }
+input_file = "input.txt"
+output_file = "output.txt"
+with open(input_file, "r") as f_input, open(output_file, "w") as f_output:
+    # 逐行读取输入文件，并处理每一行
+    for line in f_input:
+        # 处理每一行字符串
+        processed_line = transfom_data(line)
+        # 将处理结果写入到输出文件的一行中
+        f_output.write(processed_line + "\n")

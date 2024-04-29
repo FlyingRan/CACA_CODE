@@ -197,7 +197,7 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             aspect_class_logits, opinion_class_logits, spans_embedding, forward_embedding, reverse_embedding, \
                 cnn_spans_mask_tensor, imp_aspect_exist, imp_opinion_exist,asp_rep,opi_rep = step_1_model(
                 bert_features, attention_mask, bert_spans_tensor, spans_mask_tensor,
-                related_spans_tensor, bert_features.pooler_output, sentence_length)
+                related_spans_tensor, sentence_length)
 
             '''Batch更新'''
             pred_aspect_logits = torch.argmax(F.softmax(aspect_class_logits, dim=2), dim=2)
@@ -214,10 +214,10 @@ def eval(bert_model, step_1_model, step_2_forward, step_2_reverse,step_3_categor
             opi_0, opi_1, opi_2, right_o0, right_o1, right_o2 = cal_imp_num(opi_0, opi_1, opi_2, right_o0, right_o1,
                                                                             right_o2, 1, imp_opi_label_tensor,
                                                                             pred_imp_opinion)
-            pred_imp_aspect[pred_imp_aspect>1]=1
-            pred_imp_opinion[pred_imp_opinion>1]=1
-            pred_imp_aspect = imp_asp_label_tensor
-            pred_imp_opinion = imp_opi_label_tensor
+            # pred_imp_aspect[pred_imp_aspect>1]=1
+            # pred_imp_opinion[pred_imp_opinion>1]=1
+            # pred_imp_aspect = imp_asp_label_tensor
+            # pred_imp_opinion = imp_opi_label_tensor
             # origin = bert_features.pooler_output.clone().cpu()
             origin = spans_embedding[:,0,:].clone().cpu()
             if tensor_2d_a is None:
@@ -546,6 +546,10 @@ def train(args):
         train_path = "./datasets/Restaurant-ACOS/rest16_quad_train.tsv"
         test_path = "./datasets/Restaurant-ACOS/rest16_quad_test.tsv"
         dev_path = "./datasets/Restaurant-ACOS/rest16_quad_dev.tsv"
+    # if args.dataset == 'restaurant':
+    #     train_path = "./datasets/Data_ASQP/rest16/new_train.txt"
+    #     test_path = "./datasets/Data_ASQP/rest16/new_test.txt"
+    #     dev_path = "./datasets/Data_ASQP/rest16/new_dev.txt"
     else:
         train_path = "./datasets/Laptop-ACOS/laptop_quad_train.tsv"
         test_path = "./datasets/Laptop-ACOS/laptop_quad_test.tsv"
@@ -664,7 +668,6 @@ def train(args):
                                                                                           bert_spans_tensor,
                                                                                           spans_mask_tensor,
                                                                                           related_spans_tensor,
-                                                                                          bert_output.pooler_output,
                                                                                           sentence_length)
 
                 bool_mask = spans_mask_tensor.bool()
@@ -820,12 +823,12 @@ def train(args):
     logger.info("Evaluation on testset:")
 
     model_path = args.model_dir + args.dataset + '_' +str(best_quad_f1) + '.pt'
-    # model_path = args.model_dir + 'restaurant_0.611764705882353.pt'
-    # model_path = args.model_dir + 'restaurant_0.6225490196078431.pt'
+    # model_path = args.model_dir + 'restaurant_0.6499701848539058.pt'
+    # model_path = args.model_dir + 'restaurant_0.6419895893580104.pt'
     # model_path = args.model_dir + 'restaurant_0.5956497490239823.pt'
-    # model_path = args.model_dir + 'restaurant_0.59826.pt'
+    # model_path = args.model_dir + 'laptop_0.4372960372960373.pt'
     # model_path = args.model_dir + 'laptop_0.426367461430575.pt'
-    # restaurant_0.587515299877601.pt  laptop_0.4200995925758262.pt restaurant_0.59.pt laptop_0.426367461430575.pt
+    # restaurant_0.587515299877601.pt  laptop_0.4200995925758262.pt restaurant_0.59.pt laptop_0.426367461430575.pt restaurant_0.6419895893580104.pt
 
     if args.muti_gpu:
         state = torch.load(model_path)
@@ -863,8 +866,8 @@ def main():
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--muti_gpu", default=False)
-    parser.add_argument('--epochs', type=int, default=250, help='training epoch number')
-    parser.add_argument("--train_batch_size", default=4, type=int, help="batch size for training")
+    parser.add_argument('--epochs', type=int, default=300, help='training epoch number')
+    parser.add_argument("--train_batch_size", default=2, type=int, help="batch size for training")
     parser.add_argument("--RANDOM_SEED", type=int, default=2024, help="")
     '''修改了数据格式'''
     parser.add_argument("--dataset", default="restaurant", type=str, choices=["restaurant", "laptop"],help="specify the dataset")

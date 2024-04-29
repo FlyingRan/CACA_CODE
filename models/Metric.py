@@ -1,4 +1,4 @@
-from transformers import BertTokenizer
+from transformers import BertTokenizer,AutoTokenizer
 import numpy as np
 import json
 from .data_BIO_loader import get_categories
@@ -13,7 +13,7 @@ class Metric():
     def __init__(self, args, forward_pred_result, reverse_pred_result, gold_instances):
         self.args = args
         self.gold_instances = gold_instances
-        self.tokenizer = BertTokenizer.from_pretrained(args.init_vocab, do_lower_case=args.do_lower_case)
+        self.tokenizer = AutoTokenizer.from_pretrained(args.init_vocab, do_lower_case=args.do_lower_case)
 
         self.pred_aspect = forward_pred_result[0]
         self.pred_aspect_sentiment = forward_pred_result[1]

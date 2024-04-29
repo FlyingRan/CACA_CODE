@@ -256,10 +256,10 @@ class Step_1(torch.nn.Module):
         # self.categories_classification_opinion = nn.Linear(args.bert_feature_dim, len(categories))
         self.ATT_attentions = nn.ModuleList(
             [Dim_Four_Block(args, self.bert_config) for _ in range(max(1, args.ATT_SPAN_block_num - 1))])
-        self.multhead_asp = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
+        # self.multhead_asp = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
 
-        self.multhead_opi = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
-
+        # self.multhead_opi = Pointer_Block(args, self.bert_config, mask_for_encoder=False)
+        self.atten_imp = nn.MultiheadAttention(args.bert_feature_dim,4)
         # self.imp_asp_mlp = nn.Linear(args.bert_feature_dim, args.bert_feature_dim * 2)
         # self.imp_opi_mlp = nn.Linear(args.bert_feature_dim, args.bert_feature_dim * 2)
         self.imp_asp_classifier = nn.Sequential(
@@ -309,13 +309,13 @@ class Step_1(torch.nn.Module):
         # self.position_encoder = RelativePositionEncoding(args.bert_feature_dim,428)
         #self.position_encoder = AbsolutePositionalEncoding(args,1000)
 
-    def forward(self,bert_output, attention_mask, spans, span_mask, related_spans_tensor, pooler_output,sentence_length):
+    def forward(self,bert_output, attention_mask, spans, span_mask, related_spans_tensor,sentence_length):
         # 调用 span_generator 方法生成 spans_embedding 和 features_mask_tensor 两个变量。
         # 其中 spans_embedding 表示每个 span 的嵌入表示，features_mask_tensor 表示每个 span 是否被标记为有效的情感单元。
         # test = self.opinion_lstm(input_bert_features)
         bert_rsp = bert_output.last_hidden_state
         spans_embedding, features_mask_tensor = self.span_generator(bert_output.last_hidden_state, attention_mask, spans,
-                                                                    span_mask, related_spans_tensor,pooler_output, sentence_length)
+                                                                    span_mask, related_spans_tensor, sentence_length)
         #spans_embedding = spans_embedding+self.position_encoder(spans_embedding,span_mask)
         # spans_embedding = spans_embedding
         # imp_aspect_exist, asp_embedding = self.bert_blend_cnn_asp(bert_output)
@@ -335,6 +335,13 @@ class Step_1(torch.nn.Module):
         # # input_vector1 = input_vector1.view(span_embedding_3.shape[0], -1)
         span_embedding_1 = torch.clone(spans_embedding)
         span_embedding_2 = torch.clone(spans_embedding)
+        span_embedding_3 = torch.clone(spans_embedding)
+        key_padding_mask = torch.logical_not(span_mask)
+        embedding = torch.mean(self.atten_imp(span_embedding_3.permute(1,0,2),
+            span_embedding_3.permute(1, 0, 2),span_embedding_3.permute(1,0,2),key_padding_mask=key_padding_mask)[0].permute(1,0,2),dim=1)
+        imp_aspect_exist = self.imp_asp_classifier(embedding)
+        imp_opinion_exist = self.imp_opi_classifier(embedding)
+
         # global_rep1,imp_aspect_exist = self.textCNN_A(bert_rsp)
         # global_rep2,imp_opinion_exist = self.textCNN_O(bert_rsp)
 
@@ -390,6 +397,7 @@ class Step_1(torch.nn.Module):
         # 同样用 sentiment_classification_opinion 层将其映射到具体的情感极性标签上，得到 class_logits_opinion。
         class_logits_opinion = self.sentiment_classification_opinion(span_embedding_2)
 
+        '''
         span_embedding_3 = torch.clone(span_embedding_1)
         span_embedding_4 = torch.clone(span_embedding_2)
         output1, _ = self.multhead_asp(span_embedding_3, span_mask, pooler_output.unsqueeze(1))
@@ -403,6 +411,8 @@ class Step_1(torch.nn.Module):
         # output2 = output2.squeeze()
         imp_aspect_exist = self.imp_asp_classifier(input_vector1)
         imp_opinion_exist = self.imp_opi_classifier(input_vector2)
+        '''
+
         '''
         span_embedding_3 = torch.clone(span_embedding_1)
         span_embedding_4 = torch.clone(span_embedding_2)
@@ -424,9 +434,9 @@ class Step_1(torch.nn.Module):
 
 
         return class_logits_aspect, class_logits_opinion, spans_embedding, span_embedding_1, span_embedding_2, \
-               features_mask_tensor,imp_aspect_exist,imp_opinion_exist,input_vector1,input_vector2
+               features_mask_tensor,imp_aspect_exist,imp_opinion_exist,embedding,embedding
 
-    def span_generator(self, input_bert_features, attention_mask, spans, span_mask, related_spans_tensor,pooler_output,
+    def span_generator(self, input_bert_features, attention_mask, spans, span_mask, related_spans_tensor,
                        sentence_length):
         bert_feature = self.dropout_output(input_bert_features)
         features_mask_tensor = None

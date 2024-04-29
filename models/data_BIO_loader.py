@@ -1030,7 +1030,7 @@ class DataTterator2(object):
         self.instances = instances
         self.args = args
         self.batch_count = len(instances)
-        self.tokenizer = AutoTokenizer.from_pretrained(args.init_model)
+        self.tokenizer = AutoTokenizer.from_pretrained(args.init_model,do_lower_case=args.do_lower_case)
         # self.adj = self.adj_compute(args, raw_data, self.tokenizer)
 
 
