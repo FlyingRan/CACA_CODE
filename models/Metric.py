@@ -215,7 +215,8 @@ class Metric():
             spans = self.gold_instances[i]['spans']
             start2idx = []
             end2idx = []
-            bert_tokens.append("[CLS]")
+            bert_tokens.append(self.tokenizer.cls_token)
+            # bert_tokens.append("[CLS]")
             for token in self.gold_instances[i]['tokens']:
                 start2idx.append(len(bert_tokens))
                 sub_tokens = self.tokenizer.tokenize(token)
@@ -226,8 +227,8 @@ class Metric():
                 else:
                     bert_tokens += sub_tokens
                 end2idx.append(len(bert_tokens) - 1)
-            # bert_tokens.append(self.tokenizer.cls_token)
-            bert_tokens.append("[CLS]")
+            bert_tokens.append(self.tokenizer.cls_token)
+            # bert_tokens.append("[CLS]")
 
             bert_spans = [[start2idx[span[0]], end2idx[span[1]], span[2]] for span in spans]
             bert_spans.append([0, 0, 0])
