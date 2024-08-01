@@ -198,7 +198,9 @@ class Metric():
             result2 = []
             all_result = []
             triples_result = []
-            aspect_text = []
+            error_a2o_pair = []
+            error_o2a_pair = []
+            error_pair = []
             opinion_text = []
         for i in range(len(self.gold_instances)):
             '''实体长度实验'''
@@ -213,7 +215,7 @@ class Metric():
             spans = self.gold_instances[i]['spans']
             start2idx = []
             end2idx = []
-            bert_tokens.append(self.tokenizer.cls_token)
+            bert_tokens.append("[CLS]")
             for token in self.gold_instances[i]['tokens']:
                 start2idx.append(len(bert_tokens))
                 sub_tokens = self.tokenizer.tokenize(token)
@@ -224,7 +226,9 @@ class Metric():
                 else:
                     bert_tokens += sub_tokens
                 end2idx.append(len(bert_tokens) - 1)
-            bert_tokens.append(self.tokenizer.cls_token)
+            # bert_tokens.append(self.tokenizer.cls_token)
+            bert_tokens.append("[CLS]")
+
             bert_spans = [[start2idx[span[0]], end2idx[span[1]], span[2]] for span in spans]
             bert_spans.append([0, 0, 0])
             bert_spans.insert(0, [0, 0, 0])
@@ -240,9 +244,24 @@ class Metric():
             # pred_aspect = list(set(pred_aspect) | set(reverse_aspect))
             # pred_opinion = list(set(pred_opinion) | set(reverse_opinion))
             # pred_apce = list(set(pred_apce) | set(reverse_apce))
-            # pred_pairs = list(set(pred_pairs) | set(reverse_pairs))
-            # pred_category = list(set(pred_category))
 
+            # pred_category = list(set(pred_category))
+            if self.args.output_path:
+                error_a2o_pair.append({"sentence": self.gold_instances[i]['sentence'],
+                                   "pair_gold": [gold_pairs for gold_pairs in set(gold_pairs)],
+                                   "pair_pred": [pred_pairs for pred_pairs in set(pred_pairs)],
+                                   })
+                error_o2a_pair.append({"sentence": self.gold_instances[i]['sentence'],
+                                       "pair_gold": [gold_pairs for gold_pairs in set(gold_pairs)],
+                                       "pair_pred": [reverse_pairs for reverse_pairs in set(reverse_pairs)],
+                                       })
+            pred_pairs = list(set(pred_pairs) | set(reverse_pairs))
+
+            if self.args.output_path:
+                error_pair.append({"sentence": self.gold_instances[i]['sentence'],
+                                       "pair_gold": [gold_pairs for gold_pairs in set(gold_pairs)],
+                                       "pair_pred": [reverse_pairs for reverse_pairs in set(pred_pairs)],
+                                       })
             if self.args.Filter_Strategy:
                 pred_triples = self.cal_quad_final_result(pred_triples, pred_spans, reverse_triples, reverse_spans)
             else:
@@ -257,11 +276,11 @@ class Metric():
                 for j, a_o_c in enumerate(pred_category_span):
                     aspect_span = bert_spans[a_o_c[0]]
                     aspect_span = (aspect_span[2], aspect_span[0], aspect_span[1])
-
                     opinion_span = bert_spans[int(a_o_c[1])]
                     opinion_span = (opinion_span[2], opinion_span[0], opinion_span[1])
                     aspect = self.find_token(bert_tokens, aspect_span)
                     opinion = self.find_token(bert_tokens, opinion_span)
+                    # if aspect != "[CLS]"  and  opinion == "[CLS]":
                     for j, triple in enumerate(pred_triples):
                         if triple[0] == aspect and triple[1] == opinion:
                             quad_list.append((aspect, opinion, id2category[a_o_c[2]], triple[2]))
@@ -304,27 +323,27 @@ class Metric():
             gold_apce_num, pred_apce_num, correct_apce_num = self.num_4_eval(gold_triples, pred_triples, gold_apce_num,
                                                                         pred_apce_num, correct_apce_num)
             if self.args.output_path:
-                if len(gold_quad)<2:
-                    result1.append({"sentence": self.gold_instances[i]['sentence'],
-                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
-                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
-                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
-                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
-                                   })
-                elif len(gold_quad) < 3:
-                    result.append({"sentence": self.gold_instances[i]['sentence'],
-                                         "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
-                                         "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
-                                        "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
-                                        "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
-                                         })
-                else:
-                    result2.append({"sentence": self.gold_instances[i]['sentence'],
-                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
-                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
-                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
-                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
-                                   })
+                # if len(gold_quad)<2:
+                #     result1.append({"sentence": self.gold_instances[i]['sentence'],
+                #                    "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                #                    "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                #                    "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                #                    "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                #                    })
+                # elif len(gold_quad) < 3:
+                #     result.append({"sentence": self.gold_instances[i]['sentence'],
+                #                          "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                #                          "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                #                         "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                #                         "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                #                          })
+                # else:
+                #     result2.append({"sentence": self.gold_instances[i]['sentence'],
+                #                    "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                #                    "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                #                    "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                #                    "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                #                    })
                 all_result.append({"sentence": self.gold_instances[i]['sentence'],
                                    "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
                                    "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
@@ -346,20 +365,29 @@ class Metric():
 
 
         if self.args.output_path:
-            F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
-            json.dump(result, F, ensure_ascii=False, indent=4)
-            F.close()
-
-            F1 = open(self.args.dataset + 'quad_num_3-5.json', 'w', encoding='utf-8')
-            json.dump(result2, F1, ensure_ascii=False, indent=4)
-            F1.close()
-            F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
-            json.dump(result1, F2, ensure_ascii=False, indent=4)
-            F2.close()
+            # F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
+            # json.dump(result, F, ensure_ascii=False, indent=4)
+            # F.close()
+            #
+            # F1 = open(self.args.dataset + 'quad_num_3-5.json', 'w', encoding='utf-8')
+            # json.dump(result2, F1, ensure_ascii=False, indent=4)
+            # F1.close()
+            # F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
+            # json.dump(result1, F2, ensure_ascii=False, indent=4)
+            # F2.close()
 
             F3 = open(self.args.dataset + 'quad_num_all.json', 'w', encoding='utf-8')
             json.dump(all_result, F3, ensure_ascii=False, indent=4)
             F3.close()
+            F0 = open(self.args.dataset + 'error_a2o_pair.json', 'w', encoding='utf-8')
+            json.dump(error_a2o_pair, F0, ensure_ascii=False, indent=4)
+            F0.close()
+            F1 = open(self.args.dataset + 'error_o2a_pair.json', 'w', encoding='utf-8')
+            json.dump(error_o2a_pair, F1, ensure_ascii=False, indent=4)
+            F1.close()
+            F2 = open(self.args.dataset + 'error_pair.json', 'w', encoding='utf-8')
+            json.dump(error_pair, F2, ensure_ascii=False, indent=4)
+            F2.close()
 
         if self.args.output_path:
             # F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
@@ -372,7 +400,6 @@ class Metric():
             # F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
             # json.dump(result1, F2, ensure_ascii=False, indent=4)
             # F2.close()
-
             F4 = open(self.args.dataset + 'triples_num_all.json', 'w', encoding='utf-8')
             json.dump(triples_result, F4, ensure_ascii=False, indent=4)
             F4.close()
@@ -654,7 +681,7 @@ class Metric():
         aspect_list,opinion_list,apce_list,category_list = [],[],[],[]
         triples = self.gold_instances[sentence_index]['quad']
         for keys in triples:
-            aspect, opinion = keys.split('|')
+            aspect, opinion,_ = keys.split('|')
             aspect_tokens = []
             for aspect_token in aspect.split( ):
                 token = self.tokenizer.tokenize(aspect_token)

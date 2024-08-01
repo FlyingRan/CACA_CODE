@@ -5,6 +5,7 @@ import random
 import json
 from transformers import BertTokenizer,AutoTokenizer
 from spans import *
+from test import filter_invalid_spans,is_valid_span
 import torch.nn.functional as F
 validity2id = {'none': 0, 'positive': 1, 'negative': 1, 'neutral': 1}
 
@@ -15,7 +16,7 @@ def get_categories(args):
     if args.dataset == "restaurant":
         categories = ['RESTAURANT#GENERAL', 'SERVICE#GENERAL', 'FOOD#GENERAL', 'FOOD#QUALITY', 'FOOD#STYLE_OPTIONS', 'DRINKS#STYLE_OPTIONS', 'DRINKS#PRICES',
             'AMBIENCE#GENERAL', 'RESTAURANT#PRICES', 'FOOD#PRICES', 'RESTAURANT#MISCELLANEOUS', 'DRINKS#QUALITY', 'LOCATION#GENERAL']
-    else:
+    elif args.dataset == "laptop":
         categories = ['MULTIMEDIA_DEVICES#PRICE', 'OS#QUALITY', 'SHIPPING#QUALITY', 'GRAPHICS#OPERATION_PERFORMANCE',
                       'CPU#OPERATION_PERFORMANCE',
                       'COMPANY#DESIGN_FEATURES', 'MEMORY#OPERATION_PERFORMANCE', 'SHIPPING#PRICE',
@@ -61,6 +62,43 @@ def get_categories(args):
                       'LAPTOP#CONNECTIVITY', 'POWER_SUPPLY#DESIGN_FEATURES', 'HARDWARE#OPERATION_PERFORMANCE',
                       'WARRANTY#QUALITY', 'HARD_DISC#QUALITY',
                       'POWER_SUPPLY#OPERATION_PERFORMANCE', 'PORTS#DESIGN_FEATURES', 'Out_Of_Scope#USABILITY']
+    elif args.dataset == "phone":
+        categories = [
+            'PRODUCT.ACCESSORIES#PHONE.CASES', 'PRODUCT.QUALITY#DUSTPROOF',
+            'BUYER.ATTITUDE#REPURCHASE.AND.CHURN.TENDENCY', 'PRODUCT.QUALITY#GENERAL',
+            'PRODUCT.QUALITY#GENUINE.PRODUCT', 'INTELLIGENT.ASSISTANT#WAKE-UP.FUNCTION',
+            'AUDIO/SOUND#VOLUME.AND.SPEAKER', 'SELLER.SERVICE#INVENTORY', 'APPEARANCE.DESIGN#WORKMANSHIP.AND.TEXTURE',
+            'SIGNAL#WIFI.SIGNAL', 'PRODUCT.CONFIGURATION#OPERATING.MEMORY', 'PRODUCT.QUALITY#WATER.RESISTANT',
+            'BATTERY/LONGEVITY#STANDBY.TIME', 'PRODUCT.PACKAGING#GENERAL', 'PRODUCT.QUALITY#CLEANLINESS',
+            'BATTERY/LONGEVITY#BATTERY.LIFE', 'PRODUCT.PACKAGING#PACKAGING.MATERIALS',
+            'SELLER.SERVICE#SELLER.EXPERTISE', 'OVERALL#OVERALL', 'PRICE#PRICE',
+            'INTELLIGENT.ASSISTANT#INTELLIGENT.ASSISTANT.GENERAL', 'SYSTEM#SYSTEM.GENERAL',
+            'PRODUCT.ACCESSORIES#HEADPHONES', 'APPEARANCE.DESIGN#EXTERIOR.DESIGN.MATERIAL',
+            'SELLER.SERVICE#TIMELINESS.OF.SELLER.SERVICE', 'PRODUCT.QUALITY#FALL.PROTECTION',
+            'APPEARANCE.DESIGN#FUSELAGE.SIZE', 'BUYER.ATTITUDE#LOYALTY', 'SYSTEM#OPERATION.SMOOTHNESS',
+            'BATTERY/LONGEVITY#CHARGING.SPEED', 'BATTERY/LONGEVITY#GENERAL', 'SHOOTING.FUNCTIONS#GENERAL',
+            'SYSTEM#LOCK.SCREEN.DESIGN', 'PERFORMANCE#GENERAL', 'APPEARANCE.DESIGN#COLOR', 'APPEARANCE.DESIGN#WEIGHT',
+            'BUYER.ATTITUDE#RECOMMENDABLE', 'SIGNAL#SIGNAL.OF.MOBILE.NETWORK', 'EASE.OF.USE#AUDIENCE.GROUPS',
+            'PRODUCT.PACKAGING#PACKAGING.GRADE', 'SYSTEM#NFC', 'SMART.CONNECT#POSITIONING.AND.GPS',
+            'BRANDING/MARKETING#PROMOTIONAL.GIVEAWAYS', 'PRODUCT.ACCESSORIES#CHARGING.CABLE', 'SELLER.SERVICE#ATTITUDE',
+            'BUYER.ATTITUDE#SHOPPING.WILLINGNESS', 'AUDIO/SOUND#TONE.QUALITY', 'SYSTEM#APPLICATION',
+            'SHOOTING.FUNCTIONS#PIXEL', 'SECURITY#SCREEN.UNLOCK', 'AFTER-SALES.SERVICE#EXCHANGE/WARRANTY/RETURN',
+            'BATTERY/LONGEVITY#POWER.CONSUMPTION.SPEED', 'BUYER.ATTITUDE#SHOPPING.EXPERIENCES',
+            'BATTERY/LONGEVITY#CHARGING.METHOD', 'PRICE#VALUE.FOR.MONEY',
+            'PRODUCT.PACKAGING#COMPLETENESS.OF.ACCESSORIES', 'PRODUCT.ACCESSORIES#CHARGER', 'PERFORMANCE#RUNNING.SPEED',
+            'SCREEN#SIZE', 'SCREEN#CLARITY', 'LOGISTICS#GENERAL', 'PRODUCT.PACKAGING#INSTRUCTION.MANUAL',
+            'SCREEN#SCREEN-TO-BODY.RATIO', 'LOGISTICS#SHIPPING.FEE', 'KEY.DESIGN#GENERAL',
+            'PRODUCT.ACCESSORIES#CELL.PHONE.FILM', 'APPEARANCE.DESIGN#THICKNESS', 'LOGISTICS#SPEED',
+            'APPEARANCE.DESIGN#AESTHETICS.GENERAL', 'APPEARANCE.DESIGN#GRIP.FEELING',
+            'BATTERY/LONGEVITY#BATTERY.CAPACITY', 'SCREEN#GENERAL', 'SYSTEM#SYSTEM.UPGRADE',
+            'SYSTEM#SOFTWARE.COMPATIBILITY', 'SIGNAL#CALL.QUALITY', 'SIGNAL#SIGNAL.GENERAL', 'EASE.OF.USE#EASY.TO.USE',
+            'LOGISTICS#LOST.AND.DAMAGED', 'SELLER.SERVICE#SHIPPING', 'CAMERA#FRONT.CAMERA',
+            'SYSTEM#UI.INTERFACE.AESTHETICS', 'CAMERA#GENERAL', 'PRODUCT.CONFIGURATION#MEMORY', 'CAMERA#REAR.CAMERA',
+            'CAMERA#FILL.LIGHT', 'PRODUCT.CONFIGURATION#CPU', 'PERFORMANCE#HEAT.GENERATION',
+            'SMART.CONNECT#BLUETOOTH.CONNECTION'
+        ]
+    else:
+        categories = ['RESTAURANT#GENERAL', 'SERVICE#GENERAL']
     category2id = {}
     id2category = {i: ch for i, ch in enumerate(categories)}
     return categories,id2category
@@ -163,232 +201,8 @@ def load_data_instances(sentence_packs, args):
     return instances
 
 
-def convert_examples_to_features(args, train_instances, max_span_length=8):
-
-    features = []
-    num_aspect = 0
-    num_triple = 0
-    num_opinion = 0
-    differ_opinion_senitment_num = 0
-    for ex_index, example in enumerate(train_instances):
-        sample = {'id': example.id}
-        sample['tokens'] = example.text_a.split(' ')
-        sample['text_length'] = len(sample['tokens'])
-        sample['triples'] = example.all_label
-        sample['sentence'] = example.text_a
-        aspect = {}
-        opinion = {}
-
-        opinion_reverse = {}
-        aspect_reverse  = {}
-
-        differ_opinion_sentiment = False
-
-        for triple_name in sample['triples']:
-            aspect_span, opinion_span, sentiment = tuple(sample['triples'][triple_name][0]), tuple(
-                sample['triples'][triple_name][1]), sample['triples'][triple_name][2]
-            num_triple += 1
-            if aspect_span not in aspect:
-                aspect[aspect_span] = sentiment
-                opinion[aspect_span] = [(opinion_span, sentiment)]
-            else:
-                assert aspect[aspect_span] == sentiment
-                opinion[aspect_span].append((opinion_span, sentiment))
-
-            if opinion_span not in opinion_reverse:
-                opinion_reverse[opinion_span] = sentiment
-                aspect_reverse[opinion_span] = [(aspect_span, sentiment)]
-            else:
-                '''同一aspect的不同的opinion拥有相同极性，但是'''
-                if opinion_reverse[opinion_span] != sentiment:
-                    differ_opinion_sentiment = True
-                else:
-                    aspect_reverse[opinion_span].append((aspect_span, sentiment))
-        if differ_opinion_sentiment:
-            differ_opinion_senitment_num += 1
-            print(ex_index, '单意见词多极性')
-            continue
-
-        num_aspect += len(aspect)
-        num_opinion += len(opinion)
-
-        # if len(aspect) != example.aspect_num:
-        #     print('有不同三元组使用重复了aspect:', example.id)
-
-        spans = []
-        span_tokens = []
-
-        spans_aspect_label = []
-        spans_aspect2opinion_label =[]
-        spans_opinion_label = []
-
-        reverse_opinion_label = []
-        reverse_opinion2aspect_label = []
-        reverse_aspect_label = []
-
-        if args.order_input:
-            for i in range(max_span_length):
-                if sample['text_length'] < i:
-                    continue
-                for j in range(sample['text_length'] - i):
-                    ## 所有可能的span（0,0,1）(1,1,1)....
-                    spans.append((j, i + j, i + 1))
-                    # 当前span的token
-                    span_token = ' '.join(sample['tokens'][j:i + j + 1])
-                    # 所有的span token
-                    span_tokens.append(span_token)
-                    if (j, i + j) not in aspect:
-                        # 当前span没有情感
-                        spans_aspect_label.append(0)
-                    else:
-                        # spans_aspect_label.append(sentiment2id[aspect[(j, i + j)]])
-                        spans_aspect_label.append(validity2id[aspect[(j, i + j)]])
-                    if (j, i + j) not in opinion_reverse:
-                        # 当前opinion没有情感
-                        reverse_opinion_label.append(0)
-                    else:
-                        # reverse_opinion_label.append(sentiment2id[opinion_reverse[(j, i + j)]])
-                        # 对应到标签 添加情感
-                        reverse_opinion_label.append(validity2id[opinion_reverse[(j, i + j)]])
-
-        else:
-            for i in range(sample['text_length']):
-                for j in range(i, min(sample['text_length'], i + max_span_length)):
-                    spans.append((i, j, j - i + 1))
-                    # sample['spans'].append((i, j, j-i+1))
-                    span_token = ' '.join(sample['tokens'][i:j + 1])
-                    # sample['span tokens'].append(span_tokens)
-                    span_tokens.append(span_token)
-                    if (i, j) not in aspect:
-                        spans_aspect_label.append(0)
-                    else:
-                        # spans_aspect_label.append(sentiment2id[aspect[(i, j)]])
-                        spans_aspect_label.append(validity2id[aspect[(i, j)]])
-                    if (i, j) not in opinion_reverse:
-                        reverse_opinion_label.append(0)
-                    else:
-                        # reverse_opinion_label.append(sentiment2id[opinion_reverse[(i, j)]])
-                        reverse_opinion_label.append(validity2id[opinion_reverse[(i, j)]])
 
 
-        assert len(span_tokens) == len(spans)
-        for key_aspect in opinion:
-            opinion_list = []
-            sentiment_opinion = []
-            spans_aspect2opinion_label.append(key_aspect)
-            for opinion_span_2_aspect in opinion[key_aspect]:
-                opinion_list.append(opinion_span_2_aspect[0])
-                sentiment_opinion.append(opinion_span_2_aspect[1])
-            assert len(set(sentiment_opinion)) == 1
-            opinion_label2triple = []
-            for i in spans:
-                if (i[0], i[1]) not in opinion_list:
-                    opinion_label2triple.append(3)
-                else:
-                    opinion_label2triple.append(sentiment2id[sentiment_opinion[0]])
-
-            if (-1,-1) in opinion_list:
-                opinion_label2triple.append(sentiment2id[sentiment_opinion[0]])
-            else:
-                opinion_label2triple.append(3)
-
-            spans_opinion_label.append(opinion_label2triple)
-
-
-        for opinion_key in aspect_reverse:
-            aspect_list = []
-            sentiment_aspect = []
-            reverse_opinion2aspect_label.append(opinion_key)
-            for aspect_span_2_opinion in aspect_reverse[opinion_key]:
-                aspect_list.append(aspect_span_2_opinion[0])
-                sentiment_aspect.append(aspect_span_2_opinion[1])
-            assert len(set(sentiment_aspect)) == 1
-            aspect_label2triple = []
-            for i in spans:
-                if (i[0], i[1]) not in aspect_list:
-                    aspect_label2triple.append(0)
-                else:
-                    aspect_label2triple.append(sentiment2id[sentiment_aspect[0]])
-
-            if (-1, -1) in aspect_list:
-                aspect_label2triple.append(sentiment2id[sentiment_aspect[0]])
-            else:
-                aspect_label2triple.append(3)
-
-            reverse_aspect_label.append(aspect_label2triple)
-
-        sample['aspect_num'] = len(spans_opinion_label)
-        sample['spans_aspect2opinion_label'] = spans_aspect2opinion_label
-        sample['reverse_opinion_num'] = len(reverse_aspect_label)
-        sample['reverse_opinion2aspect_label'] = reverse_opinion2aspect_label
-
-        if args.random_shuffle != 0:
-            np.random.seed(args.random_shuffle)
-            shuffle_ix = np.random.permutation(np.arange(len(spans)))
-            spans_np = np.array(spans)[shuffle_ix]
-            span_tokens_np = np.array(span_tokens)[shuffle_ix]
-            '''双向同顺序打乱'''
-            spans_aspect_label_np = np.array(spans_aspect_label)[shuffle_ix]
-            reverse_opinion_label_np = np.array(reverse_opinion_label)[shuffle_ix]
-            spans_opinion_label_shuffle = []
-            for spans_opinion_label_split in spans_opinion_label:
-                spans_opinion_label_split_np = np.array(spans_opinion_label_split)[shuffle_ix]
-                spans_opinion_label_shuffle.append(spans_opinion_label_split_np.tolist())
-            spans_opinion_label = spans_opinion_label_shuffle
-            reverse_aspect_label_shuffle = []
-            for reverse_aspect_label_split in reverse_aspect_label:
-                reverse_aspect_label_split_np = np.array(reverse_aspect_label_split)[shuffle_ix]
-                reverse_aspect_label_shuffle.append(reverse_aspect_label_split_np.tolist())
-            reverse_aspect_label = reverse_aspect_label_shuffle
-            spans, span_tokens, spans_aspect_label, reverse_opinion_label  = spans_np.tolist(), span_tokens_np.tolist(),\
-                                                                             spans_aspect_label_np.tolist(), reverse_opinion_label_np.tolist()
-        related_spans = np.zeros((len(spans), len(spans)), dtype=int)
-        for i in range(len(span_tokens)):
-            span_token = span_tokens[i].split(' ')
-            # for j in range(i, len(span_tokens)):
-            for j in range(len(span_tokens)):
-                differ_span_token = span_tokens[j].split(' ')
-                if set(span_token) & set(differ_span_token) == set():
-                    related_spans[i, j] = 0
-                else:
-                    related_spans[i, j] = 1
-
-        sample['related_span_array'] = related_spans
-        sample['spans'], sample['span tokens'], sample['spans_aspect_label'], sample[
-            'spans_opinion_label'] = spans, span_tokens, spans_aspect_label, spans_opinion_label
-        sample['reverse_opinion_label'], sample['reverse_aspect_label'] = reverse_opinion_label, reverse_aspect_label
-        features.append(sample)
-    return features, num_aspect, num_opinion
-
-
-def load_data(args, path, if_train=False):
-    # sentence_packs = json.load(open(path))
-    # if if_train:
-    #     random.seed(args.RANDOM_SEED)
-    #     random.shuffle(sentence_packs)
-    # instances = load_data_instances(sentence_packs, args)
-    # tokenizer = BertTokenizer.from_pretrained(args.init_vocab, do_lower_case=args.do_lower_case)
-    # data_instances, aspect_num, num_opinion = convert_examples_to_features(args, train_instances=instances,
-    #                                                                        max_seq_length=args.max_seq_length,
-    #                                                                        tokenizer=tokenizer,
-    #                                                                        max_span_length=args.max_span_length)
-    # list_instance_batch = []
-    # for i in range(0, len(data_instances), args.train_batch_size):
-    #     list_instance_batch.append(data_instances[i:i + args.train_batch_size])
-    # return list_instance_batch
-
-    with open(path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    if if_train:
-        random.seed(args.RANDOM_SEED)
-        random.shuffle(lines)
-    instances = load_data_instances_txt(lines)
-    data_instances, aspect_num, num_opinion = convert_examples_to_features(args, train_instances=instances,
-                                                                           max_span_length=args.max_span_length)
-    list_instance_batch = []
-    for i in range(0, len(data_instances), args.train_batch_size):
-        list_instance_batch.append(data_instances[i:i + args.train_batch_size])
-    return list_instance_batch
 
 def write_json_data(path,dataset):
     with open(path, 'r', encoding='utf-8') as f:
@@ -416,7 +230,7 @@ def load_data1(args, path, if_train=False):
         random.shuffle(lines)
 
     list_instance_batch = {}
-    instances = load_data_instances_txt1(lines)
+    instances = load_data_instances_txt1(lines,args)
     data_instances, aspect_num, num_opinion = convert_examples_to_features1(args, train_instances=instances,
                                                                            max_span_length=args.max_span_length)
     list_instance_batch = []
@@ -435,9 +249,11 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
     category2id = {v: k for k, v in id2category.items()}
     for ex_index, example in enumerate(train_instances):
         sample = {'id': example.id}
-        sample['tokens'] = example.text_a.split(' ')
+        sample['tokens'] = example.text_a.split()
         sample['text_length'] = len(sample['tokens'])
         sample['quad'] = example.all_label
+        if len(sample['quad'])==0:
+            continue
         sample['sentence'] = example.text_a
         aspect = {}
         opinion = {}
@@ -445,7 +261,6 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         opinion_reverse = {}
         aspect_reverse  = {}
         spans_aspect2category_label = []
-        differ_opinion_sentiment = False
         sample['ao_pair'] = []
         sample['imp_asp'] = []
         sample['imp_opi'] = []
@@ -499,6 +314,8 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         opinion_polarity_label = []
         temp_asp=[]
         temp_opi=[]
+        if len(aspect_reverse)==0:
+            temp_asp.append(0)
         for asp_span,opi_sen_list in aspect_reverse.items():
             for opi_sen in opi_sen_list:
                 if opi_sen[0] == (-1,-2):
@@ -512,6 +329,8 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         # assert len(opinion) == len(sample['imp_asp'])
 
         temp_flag = 0
+        if len(opinion)==0:
+            temp_opi.append(0)
         for opi_span, asp_sen_list in opinion.items():
             for asp_sen in asp_sen_list:
                 if asp_sen[0] == (-1, -2):
@@ -579,9 +398,12 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
                     continue
                 for j in range(sample['text_length'] - i):
                     # 所有可能的span（0,0,1）(1,1,1)....
-                    spans.append((j, i + j, i + 1))
+
                     # 当前span的token
                     span_token = ' '.join(sample['tokens'][j:i + j + 1])
+                    if not is_valid_span(sample['tokens'][j:i + j + 1]):
+                        continue
+                    spans.append((j, i + j, i + 1))
                     # 所有的span token
                     span_tokens.append(span_token)
                     if (j, i + j) not in aspect:
@@ -700,229 +522,15 @@ def convert_examples_to_features1(args, train_instances, max_span_length=8):
         sample['reverse_opinion_label'], sample['reverse_aspect_label'] = reverse_opinion_label, reverse_aspect_label
         features.append(sample)
     return features, num_aspect, num_opinion
-def convert_examples_to_features2(args, train_instances, max_span_length=8):
 
-    features = []
-    num_aspect = 0
-    num_quad = 0
-    num_opinion = 0
-    differ_opinion_senitment_num = 0
-    categories, id2category = get_categories(args)
-    category2id = {v: k for k, v in id2category.items()}
-    for ex_index, example in enumerate(train_instances):
-        sample = {'id': example.id}
-        sample['tokens'] = example.text_a.split(' ')
-        sample['text_length'] = len(sample['tokens'])
-        sample['quad'] = example.all_label
-        sample['sentence'] = example.text_a
-        aspect = {}
-        opinion = {}
-        category = {}
-        opinion_reverse = {}
-        aspect_reverse  = {}
 
-        differ_opinion_sentiment = False
-        sample['ao_pair'] = []
-
-        for quad_name in sample['quad']:
-            aspect_span, opinion_span, categorystr,sentiment = tuple(sample['quad'][quad_name][0]), tuple(
-                sample['quad'][quad_name][1]), sample['quad'][quad_name][2],sample['quad'][quad_name][3]
-            if aspect_span == (-1,-2):
-                tem_a = [0,0,0]
-            else:
-                tem_a = [aspect_span[0],aspect_span[1],aspect_span[1]+1-aspect_span[0]]
-
-            if opinion_span == (-1,-2):
-                tem_o = [0,0,0]
-            else:
-                tem_o = [opinion_span[0],opinion_span[1],opinion_span[1]+1-opinion_span[0]]
-
-            sample['ao_pair'].append([tem_a,tem_o])
-            num_quad += 1
-            if aspect_span not in aspect:
-                aspect[aspect_span] = sentiment
-                category[aspect_span] = categorystr
-                opinion[aspect_span] = [(opinion_span, sentiment)]
-            else:
-                # assert aspect[aspect_span] == sentiment
-                # if aspect[aspect_span] != sentiment:
-                #     differ_opinion_sentiment = True
-                #     print(sample+'\n'+aspect[aspect_span]+sentiment)
-                opinion[aspect_span].append((opinion_span, sentiment))
-
-            if opinion_span not in opinion_reverse:
-                opinion_reverse[opinion_span] = sentiment
-                # 1.category[opinion_span] = categorystr
-                aspect_reverse[opinion_span] = [(aspect_span, sentiment)]
-            else:
-                if opinion_reverse[opinion_span] != sentiment:
-                    differ_opinion_sentiment = True
-                else:
-                    if opinion_span == (-1,-2) and aspect_span == (-1,-2):
-                        print("存在双重隐性观点词和方面词："+sample['sentence'])
-                    aspect_reverse[opinion_span].append((aspect_span, sentiment))
-                    # category[opinion_span].append(categorystr)
-        if differ_opinion_sentiment:
-            differ_opinion_senitment_num += 1
-            # print(ex_index, '单意见词多极性')
-            continue
-
-        num_aspect += len(aspect)
-        num_opinion += len(opinion)
-
-        # if len(aspect) != example.aspect_num:
-        #     print('有不同三元组使用重复了aspect:', example.id)
-
-        spans = []
-        span_tokens = []
-
-        spans_aspect_label = []
-        spans_aspect2opinion_label =[]
-        spans_aspect2category_label = []
-        spans_opinion_label = []
-
-        reverse_opinion_label = [0]
-        reverse_opinion2aspect_label = []
-        reverse_aspect_label = []
-        # 解决隐式aspect及其对应的category label问题
-        if (-1,-2) in aspect:
-            spans_aspect_label.append(1)
-            spans_aspect2category_label.append(category2id[category[(-1,-2)]])
-        else:
-            spans_aspect_label.append(0)
-            spans_aspect2category_label.append(0)
-
-        if args.order_input:
-            for i in range(max_span_length):
-                if sample['text_length'] < i:
-                    continue
-                for j in range(sample['text_length'] - i):
-                    # 所有可能的span（0,0,1）(1,1,1)....
-                    spans.append((j, i + j, i + 1))
-                    # 当前span的token
-                    span_token = ' '.join(sample['tokens'][j:i + j + 1])
-                    # 所有的span token
-                    span_tokens.append(span_token)
-                    if (j, i + j) not in aspect:
-                        # 当前span没有情感
-                        spans_aspect_label.append(0)
-                    else:
-                        # spans_aspect_label.append(sentiment2id[aspect[(j, i + j)]])
-                        spans_aspect_label.append(validity2id[aspect[(j, i + j)]])
-                    if (j, i + j) not in opinion_reverse:
-                        # 当前opinion没有情感
-                        reverse_opinion_label.append(0)
-                    else:
-                        # reverse_opinion_label.append(sentiment2id[opinion_reverse[(j, i + j)]])
-                        # 对应到标签 添加情感
-                        reverse_opinion_label.append(validity2id[opinion_reverse[(j, i + j)]])
-                    if (j , i + j) not in category:
-                        spans_aspect2category_label.append(0)
-                    else:
-                        spans_aspect2category_label.append(category2id[category[(j,i+j)]])
-
-        else:
-            for i in range(sample['text_length']):
-                for j in range(i, min(sample['text_length'], i + max_span_length)):
-                    spans.append((i, j, j - i + 1))
-                    # sample['spans'].append((i, j, j-i+1))
-                    span_token = ' '.join(sample['tokens'][i:j + 1])
-                    # sample['span tokens'].append(span_tokens)
-                    span_tokens.append(span_token)
-                    if (i, j) not in aspect:
-                        spans_aspect_label.append(0)
-                    else:
-                        # spans_aspect_label.append(sentiment2id[aspect[(i, j)]])
-                        spans_aspect_label.append(validity2id[aspect[(i, j)]])
-                    if (i, j) not in opinion_reverse:
-                        reverse_opinion_label.append(0)
-                    else:
-                        # reverse_opinion_label.append(sentiment2id[opinion_reverse[(i, j)]])
-                        reverse_opinion_label.append(validity2id[opinion_reverse[(i, j)]])
-        spans_aspect2category_label.append(0)
-        spans_aspect_label.append(0)
-        if (-1,-2) in opinion_reverse:
-            reverse_opinion_label.append(1)
-        else:
-            reverse_opinion_label.append(0)
-
-        assert len(span_tokens) == len(spans)
-        for key_aspect in opinion:
-            opinion_list = []
-            sentiment_opinion = []
-            spans_aspect2opinion_label.append(key_aspect)
-            for opinion_span_2_aspect in opinion[key_aspect]:
-                opinion_list.append(opinion_span_2_aspect[0])
-                sentiment_opinion.append(opinion_span_2_aspect[1])
-            # assert len(set(sentiment_opinion)) == 1
-            opinion_label2triple = [3]
-            for i in spans:
-                if (i[0], i[1]) not in opinion_list:
-                    opinion_label2triple.append(3)
-                else:
-                    opinion_label2triple.append(sentiment2id[sentiment_opinion[0]])
-
-            if (-1, -2) in opinion_list:
-                opinion_label2triple.append(sentiment2id[sentiment_opinion[0]])
-            else:
-                opinion_label2triple.append(3)
-            spans_opinion_label.append(opinion_label2triple)
-
-        for opinion_key in aspect_reverse:
-            aspect_list = []
-            sentiment_aspect = []
-            reverse_opinion2aspect_label.append(opinion_key)
-            for aspect_span_2_opinion in aspect_reverse[opinion_key]:
-                aspect_list.append(aspect_span_2_opinion[0])
-                sentiment_aspect.append(aspect_span_2_opinion[1])
-            assert len(set(sentiment_aspect)) == 1
-            aspect_label2triple = []
-
-            if (-1, -2) in aspect_list:
-                aspect_label2triple.append(sentiment2id[sentiment_aspect[0]])
-            else:
-                aspect_label2triple.append(3)
-
-            for i in spans:
-                if (i[0], i[1]) not in aspect_list:
-                    aspect_label2triple.append(3)
-                else:
-                    aspect_label2triple.append(sentiment2id[sentiment_aspect[0]])
-
-            aspect_label2triple.append(3)
-
-            reverse_aspect_label.append(aspect_label2triple)
-
-        sample['aspect_num'] = len(spans_opinion_label)
-        sample['spans_aspect2opinion_label'] = spans_aspect2opinion_label
-        sample['reverse_opinion_num'] = len(reverse_aspect_label)
-        sample['reverse_opinion2aspect_label'] = reverse_opinion2aspect_label
-        sample['spans_aspect2category_label'] = spans_aspect2category_label
-
-        related_spans = np.zeros((len(spans)+2, len(spans)+2), dtype=int)
-        for i in range(len(span_tokens)):
-            span_token = span_tokens[i].split(' ')
-            # for j in range(i, len(span_tokens)):
-            for j in range(len(span_tokens)):
-                differ_span_token = span_tokens[j].split(' ')
-                if set(span_token) & set(differ_span_token) == set():
-                    related_spans[i, j] = 0
-                else:
-                    related_spans[i, j] = 1
-
-        sample['related_span_array'] = related_spans
-        sample['spans'], sample['span tokens'], sample['spans_aspect_label'], \
-            sample['spans_opinion_label'] = spans, span_tokens, spans_aspect_label, spans_opinion_label
-        sample['reverse_opinion_label'], sample['reverse_aspect_label'] = reverse_opinion_label, reverse_aspect_label
-        features.append(sample)
-    return features, num_aspect, num_opinion
-
-def load_data_instances_txt1(lines):
+def load_data_instances_txt1(lines,args):
     id2sentiment = {'0': 'negative', '1': 'neutral', '2': 'positive'}
 
     instances = list()
     quad_num = 0
     aspects_num = 0
+    quad_num=0
     for ex_index, line in enumerate(lines):
         id = str(ex_index)  # id
         line = line.strip()
@@ -930,10 +538,12 @@ def load_data_instances_txt1(lines):
         sentence = line[0].split()  # sentence
         # raw_pairs = eval(line[1])  # triplets
         raw_pairs = line[1:]
-
+        # if len(raw_pairs)==0:
+        #     continue;
         quad_dict = {}
         aspect_num = 0
         for quad in raw_pairs:
+
             quad=quad.split(' ')
             raw_aspect = quad[0]
             raw_aspect_tuple = list(map(int, raw_aspect.split(',')))
@@ -955,70 +565,22 @@ def load_data_instances_txt1(lines):
             # print(opinion_word, raw_opinion,opinion_label)
             # print('$$$$$$$$$$$$$$$$$$$')
 
-
-            word = str(aspect_word) + '|' + str(opinion_word)
-            if word not in quad_dict:
-                quad_dict[word] = []
-                quad_dict[word] = ([raw_aspect[0], raw_aspect[-1]], [raw_opinion[0], raw_opinion[-1]], raw_category ,sentiment)
+            if  is_valid_span(aspect_word.split(' ')) and is_valid_span(opinion_word.split(' ')):
+                # if aspect_word!=""  and opinion_word=="":
+                word = str(aspect_word) + '|' + str(opinion_word) + '|'+str(raw_category)
+                if word not in quad_dict:
+                    quad_dict[word] = []
+                    quad_dict[word] = ([raw_aspect[0], raw_aspect[-1]], [raw_opinion[0], raw_opinion[-1]], raw_category ,sentiment)
+                    quad_num += 1
 
         examples = InputExample(id=id, text_a=line[0], text_b=None, all_label=quad_dict, aspect_num=aspect_num,
                                     triple_num=len(quad_dict))
 
         instances.append(examples)
-        quad_num += quad_num
+        # quad_num += quad_num
         aspects_num += aspect_num
 
-
-    return instances
-def load_data_instances_txt(lines):
-    sentiment2sentiment = {'NEG': 'negative', 'POS': 'positive', 'NEU': 'neutral'}
-
-    instances = list()
-    triples_num = 0
-    aspects_num = 0
-    for ex_index, line in enumerate(lines):
-        id = str(ex_index)  # id
-        line = line.strip()
-        line = line.split('####')
-        sentence = line[0].split()  # sentence
-        raw_pairs = eval(line[1])  # triplets
-
-        triple_dict = {}
-        aspect_num = 0
-        for triple in raw_pairs:
-            raw_aspect = triple[0]
-            raw_opinion = triple[1]
-            sentiment = sentiment2sentiment[triple[2]]
-
-            if len(raw_aspect) == 1:
-                aspect_word = sentence[raw_aspect[0]]
-                raw_aspect = [raw_aspect[0], raw_aspect[0]]
-            else:
-                aspect_word = ' '.join(sentence[raw_aspect[0]: raw_aspect[-1] + 1])
-            aspect_label = {}
-            aspect_label[aspect_word] = [raw_aspect[0], raw_aspect[-1]]
-            aspect_num += len(aspect_label)
-
-            if len(raw_opinion) == 1:
-                opinion_word = sentence[raw_opinion[0]]
-                raw_opinion = [raw_opinion[0], raw_opinion[0]]
-            else:
-                opinion_word = ' '.join(sentence[raw_opinion[0]: raw_opinion[-1] + 1])
-            opinion_label = {}
-            opinion_label[opinion_word] = [raw_opinion[0], raw_opinion[-1]]
-
-            word = str(aspect_word) + '|' + str(opinion_word)
-            if word not in triple_dict:
-                triple_dict[word] = []
-                triple_dict[word] = ([raw_aspect[0], raw_aspect[-1]], [raw_opinion[0], raw_opinion[-1]], sentiment)
-
-        examples = InputExample(id=id, text_a=line[0], text_b=None, all_label=triple_dict, aspect_num=aspect_num,
-                                triple_num=len(triple_dict))
-
-        instances.append(examples)
-        triples_num += triples_num
-        aspects_num += aspect_num
-
+    print("quad_num:"+str(quad_num))
     return instances
 
 
@@ -1179,11 +741,11 @@ class DataTterator2(object):
                 reverse_ner_label_tensor = torch.cat((reverse_ner_label_tensor, mask_pad), dim=1)
 
                 spans_category_label_tensor = torch.cat((spans_category_label_tensor,mask_pad),dim=1)
-
-                opinion_mask_pad = torch.full([1, num_aspect, spans_pad_length], 3, dtype=torch.long)
-                spans_opinion_label_tensor = torch.cat((spans_opinion_label_tensor, opinion_mask_pad), dim=-1)
-                aspect_mask_pad = torch.full([1, num_opinion, spans_pad_length], 3, dtype=torch.long)
-                reverse_aspect_tensor = torch.cat((reverse_aspect_tensor, aspect_mask_pad), dim=-1)
+                if num_aspect !=0:
+                    opinion_mask_pad = torch.full([1, num_aspect, spans_pad_length], 3, dtype=torch.long)
+                    spans_opinion_label_tensor = torch.cat((spans_opinion_label_tensor, opinion_mask_pad), dim=-1)
+                    aspect_mask_pad = torch.full([1, num_opinion, spans_pad_length], 3, dtype=torch.long)
+                    reverse_aspect_tensor = torch.cat((reverse_aspect_tensor, aspect_mask_pad), dim=-1)
                 '''对span类似方阵mask'''
                 related_spans_pad_1 = np.zeros([num_spans, spans_pad_length])
                 related_spans_pad_2 = np.zeros([spans_pad_length, max_spans])
@@ -1199,17 +761,16 @@ class DataTterator2(object):
                 final_spans_mask_tensor = spans_mask_tensor
                 final_spans_ner_label_tensor = spans_ner_label_tensor
 
+                final_imp_asp_label_tensor = imp_asp_label_tensor.squeeze(0)
+                final_imp_opi_label_tensor = imp_opi_label_tensor.squeeze(0)
                # final_spans_category_label_tensor = spans_category_label_tensor
+                final_related_spans_tensor = related_spans_tensor.unsqueeze(0)
 
                 final_spans_aspect_tensor = spans_aspect_tensor.squeeze(0)
                 final_spans_opinion_label_tensor = spans_opinion_label_tensor.squeeze(0)
                 final_reverse_ner_label_tensor = reverse_ner_label_tensor
                 final_reverse_opinion_tensor = reverse_opinion_tensor.squeeze(0)
                 final_reverse_aspect_label_tensor = reverse_aspect_tensor.squeeze(0)
-                final_related_spans_tensor = related_spans_tensor.unsqueeze(0)
-
-                final_imp_asp_label_tensor = imp_asp_label_tensor.squeeze(0)
-                final_imp_opi_label_tensor = imp_opi_label_tensor.squeeze(0)
                 final_aspect_polarity_label_tensor = aspect_polarity_label_tensor.squeeze(0)
                 final_opinion_polarity_label_tensor = opinion_polarity_label_tensor.squeeze(0)
 
@@ -1218,29 +779,28 @@ class DataTterator2(object):
                 final_attention_mask = torch.cat((final_attention_mask, attention_tensor), dim=0)
                 final_bert_spans_tensor = torch.cat((final_bert_spans_tensor, bert_spans_tensor), dim=0)
                 final_spans_mask_tensor = torch.cat((final_spans_mask_tensor, spans_mask_tensor), dim=0)
-
                 final_spans_ner_label_tensor = torch.cat((final_spans_ner_label_tensor, spans_ner_label_tensor), dim=0)
-
                 #final_spans_category_label_tensor = torch.cat((final_spans_category_label_tensor, spans_category_label_tensor), dim=0)
+                final_reverse_ner_label_tensor = torch.cat(
+                    (final_reverse_ner_label_tensor, reverse_ner_label_tensor), dim=0)
+                final_related_spans_tensor = torch.cat(
+                    (final_related_spans_tensor, related_spans_tensor.unsqueeze(0)), dim=0)
+                final_imp_asp_label_tensor = torch.cat((final_imp_asp_label_tensor, imp_asp_label_tensor.squeeze(0)),
+                                                       dim=0)
+                final_imp_opi_label_tensor = torch.cat((final_imp_opi_label_tensor, imp_opi_label_tensor.squeeze(0)),
+                                                       dim=0)
 
 
                 final_spans_aspect_tensor = torch.cat(
-                    (final_spans_aspect_tensor, spans_aspect_tensor.squeeze(0)), dim=0)
+                    (final_spans_aspect_tensor, spans_aspect_tensor.squeeze(0)), dim=0).to(torch.long)
                 final_spans_opinion_label_tensor = torch.cat(
-                    (final_spans_opinion_label_tensor, spans_opinion_label_tensor.squeeze(0)), dim=0)
-                final_reverse_ner_label_tensor = torch.cat(
-                    (final_reverse_ner_label_tensor, reverse_ner_label_tensor), dim=0)
+                    (final_spans_opinion_label_tensor, spans_opinion_label_tensor.squeeze(0)), dim=0).to(torch.long)
                 final_reverse_opinion_tensor = torch.cat(
-                    (final_reverse_opinion_tensor,  reverse_opinion_tensor.squeeze(0)), dim=0)
+                    (final_reverse_opinion_tensor,  reverse_opinion_tensor.squeeze(0)), dim=0).to(torch.long)
                 final_reverse_aspect_label_tensor = torch.cat(
-                    (final_reverse_aspect_label_tensor, reverse_aspect_tensor.squeeze(0)), dim=0)
-                final_related_spans_tensor = torch.cat(
-                    (final_related_spans_tensor, related_spans_tensor.unsqueeze(0)), dim=0)
-
-                final_imp_asp_label_tensor = torch.cat((final_imp_asp_label_tensor,imp_asp_label_tensor.squeeze(0)),dim=0)
-                final_imp_opi_label_tensor = torch.cat((final_imp_opi_label_tensor,imp_opi_label_tensor.squeeze(0)),dim=0)
-                final_aspect_polarity_label_tensor = torch.cat((final_aspect_polarity_label_tensor,aspect_polarity_label_tensor.squeeze(0)),dim=0)
-                final_opinion_polarity_label_tensor = torch.cat((final_opinion_polarity_label_tensor,opinion_polarity_label_tensor.squeeze(0)),dim=0)
+                    (final_reverse_aspect_label_tensor, reverse_aspect_tensor.squeeze(0)), dim=0).to(torch.long)
+                final_aspect_polarity_label_tensor = torch.cat((final_aspect_polarity_label_tensor,aspect_polarity_label_tensor.squeeze(0)),dim=0).to(torch.long)
+                final_opinion_polarity_label_tensor = torch.cat((final_opinion_polarity_label_tensor,opinion_polarity_label_tensor.squeeze(0)),dim=0).to(torch.long)
 
         # 注意，特征中最大span间隔不一定为设置的max_span_length，这是因为bert分词之后造成的span扩大了。
         final_tokens_tensor = final_tokens_tensor.to(self.args.device)
@@ -1277,7 +837,7 @@ class DataTterator2(object):
         start2idx = []
         end2idx = []
         bert_tokens = []
-        bert_tokens.append(tokenizer.cls_token)
+        bert_tokens.append("[CLS]")
         for token in tokens:
             if token == '':
                 continue
@@ -1298,7 +858,7 @@ class DataTterator2(object):
             #     print("no extra token")
         # start2idx.append(len(bert_tokens))
         # end2idx.append(len(bert_tokens))
-        bert_tokens.append(tokenizer.cls_token)
+        bert_tokens.append("[CLS]")
         # bert_tokens.append(tokenizer.sep_token)
         indexed_tokens = tokenizer.convert_tokens_to_ids(bert_tokens)
         tokens_tensor = torch.tensor([indexed_tokens])
