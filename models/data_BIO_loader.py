@@ -837,7 +837,7 @@ class DataTterator2(object):
         start2idx = []
         end2idx = []
         bert_tokens = []
-        bert_tokens.append(tokenizer.cls_token)
+        bert_tokens.append("[CLS]")
         for token in tokens:
             if token == '':
                 continue
@@ -858,7 +858,7 @@ class DataTterator2(object):
             #     print("no extra token")
         # start2idx.append(len(bert_tokens))
         # end2idx.append(len(bert_tokens))
-        bert_tokens.append(tokenizer.cls_token)
+        bert_tokens.append("[CLS]")
         # bert_tokens.append(tokenizer.sep_token)
         indexed_tokens = tokenizer.convert_tokens_to_ids(bert_tokens)
         tokens_tensor = torch.tensor([indexed_tokens])
