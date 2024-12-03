@@ -1,7 +1,6 @@
 import torch
 import math
 import torch.nn as nn
-import numpy as np
 from transformers.activations import ACT2FN
 import torch.nn.functional as F
 class Dim_Four_Attention(nn.Module):

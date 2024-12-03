@@ -4,7 +4,6 @@ import numpy as np
 import random
 import json
 from transformers import BertTokenizer,AutoTokenizer
-from spans import *
 from test import filter_invalid_spans,is_valid_span
 import torch.nn.functional as F
 validity2id = {'none': 0, 'positive': 1, 'negative': 1, 'neutral': 1}

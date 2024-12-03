@@ -1,14 +1,11 @@
 from transformers import BertTokenizer,AutoTokenizer
 import numpy as np
 import json
-from .data_BIO_loader import get_categories
+from .dataloader import get_categories
 
 
 id4validity = {0: 'none', 1: 'valid'}
 id4sentiment = {3: 'none', 2: 'positive', 0: 'negative', 1:'neutral'}
-# categories = ['RESTAURANT#GENERAL', 'SERVICE#GENERAL', 'FOOD#GENERAL', 'FOOD#QUALITY', 'FOOD#STYLE_OPTIONS', 'DRINKS#STYLE_OPTIONS', 'DRINKS#PRICES',
-#             'AMBIENCE#GENERAL', 'RESTAURANT#PRICES', 'FOOD#PRICES', 'RESTAURANT#MISCELLANEOUS', 'DRINKS#QUALITY', 'LOCATION#GENERAL']
-
 class Metric():
     def __init__(self, args, forward_pred_result, reverse_pred_result, gold_instances):
         self.args = args
@@ -184,13 +181,6 @@ class Metric():
         pred_aspect_num,pred_opinion_num,pred_apce_num,pred_pairs_num,pred_num = 0,0,0,0,0
         cat_num = 0
         low_standard = 0.95
-        # gold_aspect_num_length1, gold_aspect_num_length2, gold_aspect_num_length3, gold_aspect_num_length4, gold_aspect_num_length5 = 0,0,0,0,0
-        # pred_aspect_num_length1, pred_aspect_num_length2, pred_aspect_num_length3, pred_aspect_num_length4, pred_aspect_num_length5 = 0,0,0,0,0
-        # correct_aspect_num_length1, correct_aspect_num_length2, correct_aspect_num_length3, correct_aspect_num_length4, correct_aspect_num_length5 =  0,0,0,0,0
-        #
-        # gold_opinion_num_length1, gold_opinion_num_length2, gold_opinion_num_length3, gold_opinion_num_length4, gold_opinion_num_length5 = 0,0,0,0,0
-        # pred_opinion_num_length1, pred_opinion_num_length2, pred_opinion_num_length3, pred_opinion_num_length4, pred_opinion_num_length5 = 0,0,0,0,0
-        # correct_opinion_num_length1, correct_opinion_num_length2, correct_opinion_num_length3, correct_opinion_num_length4, correct_opinion_num_length5 =  0,0,0,0,0
         categories,id2category = get_categories(self.args)
         if self.args.output_path:
             result = []
@@ -203,14 +193,6 @@ class Metric():
             error_pair = []
             opinion_text = []
         for i in range(len(self.gold_instances)):
-            '''实体长度实验'''
-            # gold_aspect_length1, gold_aspect_length2, gold_aspect_length3, gold_aspect_length4, gold_aspect_length5 = [], [], [], [], []
-            # pred_aspect_length1, pred_aspect_length2, pred_aspect_length3, pred_aspect_length4, pred_aspect_length5 = [], [], [], [], []
-            #
-            # gold_opinion_length1, gold_opinion_length2, gold_opinion_length3, gold_opinion_length4, gold_opinion_length5 = [], [], [], [], []
-            # pred_opinion_length1, pred_opinion_length2, pred_opinion_length3, pred_opinion_length4, pred_opinion_length5 = [], [], [], [], []
-
-
             bert_tokens = []
             spans = self.gold_instances[i]['spans']
             start2idx = []
@@ -324,27 +306,27 @@ class Metric():
             gold_apce_num, pred_apce_num, correct_apce_num = self.num_4_eval(gold_triples, pred_triples, gold_apce_num,
                                                                         pred_apce_num, correct_apce_num)
             if self.args.output_path:
-                # if len(gold_quad)<2:
-                #     result1.append({"sentence": self.gold_instances[i]['sentence'],
-                #                    "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
-                #                    "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
-                #                    "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
-                #                    "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
-                #                    })
-                # elif len(gold_quad) < 3:
-                #     result.append({"sentence": self.gold_instances[i]['sentence'],
-                #                          "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
-                #                          "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
-                #                         "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
-                #                         "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
-                #                          })
-                # else:
-                #     result2.append({"sentence": self.gold_instances[i]['sentence'],
-                #                    "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
-                #                    "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
-                #                    "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
-                #                    "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
-                #                    })
+                if len(gold_quad)<2:
+                    result1.append({"sentence": self.gold_instances[i]['sentence'],
+                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                   })
+                elif len(gold_quad) < 3:
+                    result.append({"sentence": self.gold_instances[i]['sentence'],
+                                         "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                         "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                        "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                        "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                         })
+                else:
+                    result2.append({"sentence": self.gold_instances[i]['sentence'],
+                                   "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
+                                   "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
+                                   "new": [new_quad for new_quad in (set(quad_list) - set(gold_quad))],
+                                   "lack": [lack_quad for lack_quad in (set(gold_quad) - set(quad_list))]
+                                   })
                 all_result.append({"sentence": self.gold_instances[i]['sentence'],
                                    "quad_list_gold": [gold_quad for gold_quad in set(gold_quad)],
                                    "quad_list_pred": [pred_quad for pred_quad in set(quad_list)],
@@ -358,24 +340,18 @@ class Metric():
                                    "new": [new_triple for new_triple in (set(pred_triples) - set(gold_triples))],
                                    "lack": [lack_triple for lack_triple in (set(gold_triples) - set(pred_triples))]
                                    })
-            # # pred_aspect = reverse_aspect
-            # # pred_opinion = reverse_opinion
-            # # pred_apce = reverse_apce
-            # # pred_pairs = reverse_pairs
-            # # pred_triples = reverse_triples
-
 
         if self.args.output_path:
-            # F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
-            # json.dump(result, F, ensure_ascii=False, indent=4)
-            # F.close()
-            #
-            # F1 = open(self.args.dataset + 'quad_num_3-5.json', 'w', encoding='utf-8')
-            # json.dump(result2, F1, ensure_ascii=False, indent=4)
-            # F1.close()
-            # F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
-            # json.dump(result1, F2, ensure_ascii=False, indent=4)
-            # F2.close()
+            F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
+            json.dump(result, F, ensure_ascii=False, indent=4)
+            F.close()
+
+            F1 = open(self.args.dataset + 'quad_num_3-5.json', 'w', encoding='utf-8')
+            json.dump(result2, F1, ensure_ascii=False, indent=4)
+            F1.close()
+            F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
+            json.dump(result1, F2, ensure_ascii=False, indent=4)
+            F2.close()
 
             F3 = open(self.args.dataset + 'quad_num_all.json', 'w', encoding='utf-8')
             json.dump(all_result, F3, ensure_ascii=False, indent=4)
@@ -390,183 +366,9 @@ class Metric():
             json.dump(error_pair, F2, ensure_ascii=False, indent=4)
             F2.close()
 
-        if self.args.output_path:
-            # F = open(self.args.dataset + 'quad_num_2.json', 'w', encoding='utf-8')
-            # json.dump(result, F, ensure_ascii=False, indent=4)
-            # F.close()
-            #
-            # F1 = open(self.args.dataset + 'quad_num_3-5.json', 'w', encoding='utf-8')
-            # json.dump(result2, F1, ensure_ascii=False, indent=4)
-            # F1.close()
-            # F2 = open(self.args.dataset + 'quad_num_1.json', 'w', encoding='utf-8')
-            # json.dump(result1, F2, ensure_ascii=False, indent=4)
-            # F2.close()
-            F4 = open(self.args.dataset + 'triples_num_all.json', 'w', encoding='utf-8')
-            json.dump(triples_result, F4, ensure_ascii=False, indent=4)
-            F4.close()
         quad_result = self.P_R_F1(gold_num, pred_num, correct_num)
         pair_result = self.P_R_F1(gold_pairs_num, pred_pairs_num, correct_pairs_num,)
         triples_result = self.P_R_F1(gold_apce_num, pred_apce_num, correct_apce_num)
-            # gold_aspect_num, pred_aspect_num, correct_aspect_num = self.num_4_eval(gold_aspect, pred_aspect,
-            #                                                                        gold_aspect_num,
-            #                                                                        pred_aspect_num, correct_aspect_num)
-            #
-            # gold_opinion_num, pred_opinion_num, correct_opinion_num = self.num_4_eval(gold_opinion, pred_opinion,
-            #                                                                        gold_opinion_num,
-            #                                                                        pred_opinion_num, correct_opinion_num)
-            #
-            # gold_apce_num, pred_apce_num, correct_apce_num = self.num_4_eval(gold_apce, pred_apce, gold_apce_num,
-            #                                                                  pred_apce_num, correct_apce_num)
-            #
-            # gold_apce_num, pred_apce_num, correct_apce_num = self.num_4_eval(gold_apce, pred_apce, gold_apce_num,
-            #                                                                  pred_apce_num, correct_apce_num)
-            #
-            # gold_pairs_num, pred_pairs_num, correct_pairs_num = self.num_4_eval(gold_pairs, pred_pairs, gold_pairs_num,
-            #                                                                  pred_pairs_num, correct_pairs_num)
-
-            # gold_num, pred_num, correct_num = self.num_4_eval(gold_triples, pred_triples, gold_num,
-            #                                                                     pred_num, correct_num)
-
-
-            # for aspect_G in gold_aspect:
-            #     aspect_length = aspect_G.split(' ')
-            #     if len(aspect_length) == 1:
-            #         gold_aspect_length1.append(aspect_G)
-            #     elif len(aspect_length) == 2:
-            #         gold_aspect_length2.append(aspect_G)
-            #     elif len(aspect_length) >= 3:
-            #         gold_aspect_length3.append(aspect_G)
-            #     elif len(aspect_length) == 4:
-            #         gold_aspect_length4.append(aspect_G)
-            #     elif len(aspect_length) >= 5:
-            #         gold_aspect_length5.append(aspect_G)
-            #
-            # for aspect_P in pred_aspect:
-            #     aspect_length = aspect_P.split(' ')
-            #     if len(aspect_length) == 1:
-            #         pred_aspect_length1.append(aspect_P)
-            #     elif len(aspect_length) == 2:
-            #         pred_aspect_length2.append(aspect_P)
-            #     elif len(aspect_length) >= 3:
-            #         pred_aspect_length3.append(aspect_P)
-            #     elif len(aspect_length) == 4:
-            #         pred_aspect_length4.append(aspect_P)
-            #     elif len(aspect_length) >= 5:
-            #         pred_aspect_length5.append(aspect_P)
-            #
-            # gold_aspect_num_length1, pred_aspect_num_length1, correct_aspect_num_length1 = self.num_4_eval(
-            #     gold_aspect_length1, pred_aspect_length1, gold_aspect_num_length1, pred_aspect_num_length1, correct_aspect_num_length1)
-            # gold_aspect_num_length2, pred_aspect_num_length2, correct_aspect_num_length2 = self.num_4_eval(
-            #     gold_aspect_length2, pred_aspect_length2, gold_aspect_num_length2, pred_aspect_num_length2, correct_aspect_num_length2)
-            # gold_aspect_num_length3, pred_aspect_num_length3, correct_aspect_num_length3 = self.num_4_eval(
-            #     gold_aspect_length3, pred_aspect_length3, gold_aspect_num_length3, pred_aspect_num_length3, correct_aspect_num_length3)
-            # gold_aspect_num_length4, pred_aspect_num_length4, correct_aspect_num_length4 = self.num_4_eval(
-            #     gold_aspect_length4, pred_aspect_length4, gold_aspect_num_length4, pred_aspect_num_length4, correct_aspect_num_length4)
-            # gold_aspect_num_length5, pred_aspect_num_length5, correct_aspect_num_length5 = self.num_4_eval(
-            #     gold_aspect_length5, pred_aspect_length5, gold_aspect_num_length5, pred_aspect_num_length5, correct_aspect_num_length5)
-            # assert gold_aspect_num_length1+gold_aspect_num_length2+gold_aspect_num_length3+gold_aspect_num_length4+gold_aspect_num_length5 == gold_aspect_num
-            #
-            # for opinion_G in gold_opinion:
-            #     opinion_length = opinion_G.split(' ')
-            #     if len(opinion_length) == 1:
-            #         gold_opinion_length1.append(opinion_G)
-            #     elif len(opinion_length) == 2:
-            #         gold_opinion_length2.append(opinion_G)
-            #     elif len(opinion_length) >= 3:
-            #         gold_opinion_length3.append(opinion_G)
-            #     elif len(opinion_length) == 4:
-            #         gold_opinion_length4.append(opinion_G)
-            #     elif len(opinion_length) >= 5:
-            #         gold_opinion_length5.append(opinion_G)
-            # for opinion_P in pred_opinion:
-            #     opinion_length = opinion_P.split(' ')
-            #     if len(opinion_length) == 1:
-            #         pred_opinion_length1.append(opinion_P)
-            #     elif len(opinion_length) == 2:
-            #         pred_opinion_length2.append(opinion_P)
-            #     elif len(opinion_length) >= 3:
-            #         pred_opinion_length3.append(opinion_P)
-            #     elif len(opinion_length) == 4:
-            #         pred_opinion_length4.append(opinion_P)
-            #     elif len(opinion_length) >= 5:
-            #         pred_opinion_length5.append(opinion_P)
-            #
-            # gold_opinion_num_length1, pred_opinion_num_length1, correct_opinion_num_length1 = self.num_4_eval(
-            #     gold_opinion_length1, pred_opinion_length1, gold_opinion_num_length1, pred_opinion_num_length1,
-            #     correct_opinion_num_length1)
-            # gold_opinion_num_length2, pred_opinion_num_length2, correct_opinion_num_length2 = self.num_4_eval(
-            #     gold_opinion_length2, pred_opinion_length2, gold_opinion_num_length2, pred_opinion_num_length2,
-            #     correct_opinion_num_length2)
-            # gold_opinion_num_length3, pred_opinion_num_length3, correct_opinion_num_length3 = self.num_4_eval(
-            #     gold_opinion_length3, pred_opinion_length3, gold_opinion_num_length3, pred_opinion_num_length3,
-            #     correct_opinion_num_length3)
-            # gold_opinion_num_length4, pred_opinion_num_length4, correct_opinion_num_length4 = self.num_4_eval(
-            #     gold_opinion_length4, pred_opinion_length4, gold_opinion_num_length4, pred_opinion_num_length4,
-            #     correct_opinion_num_length4)
-            # gold_opinion_num_length5, pred_opinion_num_length5, correct_opinion_num_length5 = self.num_4_eval(
-            #     gold_opinion_length5, pred_opinion_length5, gold_opinion_num_length5, pred_opinion_num_length5,
-            #     correct_opinion_num_length5)
-            # assert gold_opinion_num_length1+gold_opinion_num_length2+ gold_opinion_num_length3+gold_opinion_num_length4+gold_opinion_num_length5 == gold_opinion_num
-
-
-
-            # F1 = open(self.args.dataset + 'aspect.json', 'w', encoding='utf-8')
-            # json.dump(aspect_text, F1, ensure_ascii=False, indent=4)
-            # F1.close()
-            #
-            # F2 = open(self.args.dataset + 'opinion.json', 'w', encoding='utf-8')
-            # json.dump(opinion_text, F2, ensure_ascii=False, indent=4)
-            # F2.close()
-
-        # aspect_result_length1 = self.P_R_F1(gold_aspect_num_length1, pred_aspect_num_length1, correct_aspect_num_length1)
-        # aspect_result_length2 = self.P_R_F1(gold_aspect_num_length2, pred_aspect_num_length2,
-        #                                     correct_aspect_num_length2)
-        # aspect_result_length3 = self.P_R_F1(gold_aspect_num_length3, pred_aspect_num_length3,
-        #                                     correct_aspect_num_length3)
-        # aspect_result_length4 = self.P_R_F1(gold_aspect_num_length4, pred_aspect_num_length4,
-        #                                     correct_aspect_num_length4)
-        # aspect_result_length5 = self.P_R_F1(gold_aspect_num_length5, pred_aspect_num_length5,
-        #                                     correct_aspect_num_length5)
-
-        # print('one token aspect precision:', aspect_result_length1[0], "one token aspect recall: ",
-        #       aspect_result_length1[1], "one token aspect f1: ",
-        #       aspect_result_length1[2])
-        # print('two token aspect precision:', aspect_result_length2[0], "two token aspect recall: ",
-        #       aspect_result_length2[1], "two token aspect f1: ",
-        #       aspect_result_length2[2])
-        # print('three token aspect precision:', aspect_result_length3[0], "three token aspect recall: ",
-        #       aspect_result_length3[1], "three token aspect f1: ",
-        #       aspect_result_length3[2])
-        # print('4 token aspect precision:', aspect_result_length4[0], "4 token aspect recall: ",
-        #       aspect_result_length4[1], "4 token aspect f1: ",
-        #       aspect_result_length4[2])
-        # print('5 token aspect precision:', aspect_result_length5[0], "5 token aspect recall: ",
-        #       aspect_result_length5[1], "5 token aspect f1: ",
-        #       aspect_result_length5[2])
-        #
-        # opinion_result_length1 = self.P_R_F1(gold_opinion_num_length1, pred_opinion_num_length1, correct_opinion_num_length1)
-        # opinion_result_length2 = self.P_R_F1(gold_opinion_num_length2, pred_opinion_num_length2, correct_opinion_num_length2)
-        # opinion_result_length3 = self.P_R_F1(gold_opinion_num_length3, pred_opinion_num_length3, correct_opinion_num_length3)
-        # opinion_result_length4 = self.P_R_F1(gold_opinion_num_length4, pred_opinion_num_length4, correct_opinion_num_length4)
-        # opinion_result_length5 = self.P_R_F1(gold_opinion_num_length5, pred_opinion_num_length5, correct_opinion_num_length5)
-        #
-        # print('one token opinion precision:', opinion_result_length1[0], "one token opinion recall: ", opinion_result_length1[1], "one token opinion f1: ",
-        #       opinion_result_length1[2])
-        # print('two token opinion precision:', opinion_result_length2[0], "two token opinion recall: ", opinion_result_length2[1], "two token opinion f1: ",
-        #       opinion_result_length2[2])
-        # print('three token opinion precision:', opinion_result_length3[0], "three token opinion recall: ", opinion_result_length3[1], "three token opinion f1: ",
-        #       opinion_result_length3[2])
-        # print('4 token opinion precision:', opinion_result_length4[0], "4 token opinion recall: ", opinion_result_length4[1], "4 token opinion f1: ",
-        #       opinion_result_length4[2])
-        # print('5 token opinion precision:', opinion_result_length5[0], "5 token opinion recall: ",
-        #       opinion_result_length5[1], "5 token opinion f1: ",
-        #       opinion_result_length5[2])
-
-
-        # aspect_result = self.P_R_F1(gold_aspect_num, pred_aspect_num, correct_aspect_num)
-        # opinion_result = self.P_R_F1(gold_opinion_num, pred_opinion_num, correct_opinion_num)
-        # apce_result = self.P_R_F1(gold_apce_num, pred_apce_num, correct_apce_num)
-        # pair_result = self.P_R_F1(gold_pairs_num, pred_pairs_num, correct_pairs_num)
 
         return quad_result,pair_result,low_standard,triples_result
 
@@ -605,7 +407,6 @@ class Metric():
         # all_sentiment_logit = sum(aspect_sentiment_logit[sentence_index][bert_span_index])
         # sentiment_precent = sentiment_logit / all_sentiment_logit
         # return sentiment, sentiment_precent
-
         return sentiment, sentiment_logit
 
     def find_aspect_category(self, sentence_index, bert_spans, span, aspect_category,j):
@@ -665,14 +466,10 @@ class Metric():
                 else:
                     opinion_tokens += token
             new_opinion = self.gold_token(opinion_tokens)
-
             sentiment = triples[keys][2]
-
             triples_list.append((new_aspect, new_opinion, sentiment.lower()))
-
             aspect_list.append((new_aspect))
             opinion_list.append((new_opinion))
-
             apce_list.append((new_aspect, sentiment))
             pair_list.append((new_aspect, new_opinion))
         return aspect_list, opinion_list, apce_list, pair_list, triples_list
