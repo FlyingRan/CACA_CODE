@@ -5,4 +5,4 @@ This repository implements our COLING  2025 research paper.
 - Install data and requirements: ``pip install -r requirements.text``
 - training the model: ``python run.py --dataset==restaurant``
 
-This repository relies on this previous work Aspect Sentiment Quad Prediction as Paraphrase Generation.
+This repository relies on this previous work :[A Span-Level Bidirectional Network for Aspect Sentiment Triplet Extraction](https://github.com/chen1310054465/SBN)
